@@ -76,6 +76,13 @@ export default function App() {
   const messagesEndRef = useRef(null);
   const selectedConversationIdRef = useRef(null);
 
+  const assignableUsers = [
+    { id: 1, username: "admin", role: "admin", label: "admin (admin)" },
+    { id: 2, username: "sales", role: "sales", label: "sales (sales)" },
+    { id: 3, username: "support", role: "support", label: "support (support)" },
+    { id: 4, username: "qa.test", role: "qa", label: "qa.test (qa)" },
+  ];
+
   useEffect(() => {
     const savedUser = localStorage.getItem("crm_user");
     const token = localStorage.getItem("token");
@@ -196,6 +203,8 @@ export default function App() {
       unread_count: Number(row.unread_count ?? row.unreadCount ?? 0),
       assigned_to: row.assigned_to ?? row.assignedTo ?? null,
       assigned_at: row.assigned_at ?? row.assignedAt ?? null,
+      assigned_username: row.assigned_username ?? row.assignedUsername ?? null,
+      assigned_role: row.assigned_role ?? row.assignedRole ?? null,
       phone:
         row.phone ??
         row.customer_phone ??
@@ -586,7 +595,13 @@ export default function App() {
   useEffect(() => {
     if (!user || !selectedConversation) return;
 
-    setAssignInput(selectedConversation.assigned_to || "");
+    setAssignInput(
+      selectedConversation?.assigned_to !== null &&
+        selectedConversation?.assigned_to !== undefined
+        ? String(selectedConversation.assigned_to)
+        : ""
+    );
+
     loadMessages(selectedConversation.id);
     loadCustomerDetail(selectedConversation.customer_id);
     loadTags(selectedConversation.customer_id);
@@ -821,11 +836,11 @@ export default function App() {
       await tryRequest([
         () =>
           axios.patch(`${API_BASE}/conversations/${selectedConversation.id}/assign`, {
-            assigned_to: assignInput || null,
+            assignedTo: assignInput ? Number(assignInput) : null,
           }),
         () =>
           axios.patch(`${API_BASE}/conversations/${selectedConversation.id}`, {
-            assigned_to: assignInput || null,
+            assignedTo: assignInput ? Number(assignInput) : null,
           }),
       ]);
 
@@ -1248,7 +1263,7 @@ export default function App() {
 
                             {conv.assigned_to ? (
                               <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                                {conv.assigned_to}
+                                {conv.assigned_username || `User #${conv.assigned_to}`}
                               </span>
                             ) : (
                               <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
@@ -1422,27 +1437,34 @@ export default function App() {
                 </div>
 
                 <div className="border-t pt-4">
-                  <div className="text-sm font-semibold mb-2">Assignment</div>
+                  <div className="text-sm font-semibold mb-2">Assigned To</div>
 
                   <div className="flex gap-2">
-                    <input
-                      className="flex-1 border rounded px-3 py-2 text-sm"
-                      placeholder="Assign to..."
+                    <select
+                      className="flex-1 border rounded px-3 py-2 text-sm bg-white"
                       value={assignInput}
                       onChange={(e) => setAssignInput(e.target.value)}
-                    />
+                    >
+                      <option value="">Unassigned</option>
+                      {assignableUsers.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.label}
+                        </option>
+                      ))}
+                    </select>
+
                     <button
                       onClick={assignConversation}
                       disabled={savingAssignment}
                       className="px-3 py-2 rounded bg-gray-900 text-white text-sm disabled:opacity-50"
                       type="button"
                     >
-                      {savingAssignment ? "Saving..." : "Save"}
+                      {savingAssignment ? "Saving..." : "Assign"}
                     </button>
                   </div>
 
                   <div className="mt-2 text-xs text-gray-500">
-                    Current: {selectedConversation.assigned_to || "Unassigned"}
+                    Current: {selectedConversation.assigned_username || "Unassigned"}
                   </div>
                 </div>
 
