@@ -9,23 +9,6 @@ const API_BASE =
 const SOCKET_BASE =
   import.meta.env.VITE_SOCKET_BASE || "http://localhost:3000";
 
-let authInterceptorRegistered = false;
-
-if (!authInterceptorRegistered) {
-  axios.interceptors.request.use((config) => {
-    const token = localStorage.getItem("token");
-
-    if (token) {
-      config.headers = config.headers || {};
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-
-    return config;
-  });
-
-  authInterceptorRegistered = true;
-}
-
 function sameId(a, b) {
   return String(a ?? "").trim() === String(b ?? "").trim();
 }
@@ -51,6 +34,13 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
 
   const [apiConnected, setApiConnected] = useState(true);
+
+  // ===== 健康监控 =====
+  const [apiStatus, setApiStatus] = useState("unknown"); // unknown | connected | disconnected
+  const [socketStatus, setSocketStatus] = useState("unknown"); // unknown | connected | disconnected
+  const [lastSuccessfulSyncAt, setLastSuccessfulSyncAt] = useState(null);
+  const [lastInboundSignalAt, setLastInboundSignalAt] = useState(null);
+  const [warningBanner, setWarningBanner] = useState("");
 
   const [conversations, setConversations] = useState([]);
   const [selectedConversationId, setSelectedConversationId] = useState(null);
@@ -126,6 +116,27 @@ export default function App() {
     [clearErrorSoon]
   );
 
+  const clearWarningSoon = useCallback(() => {
+    setTimeout(() => {
+      setWarningBanner("");
+    }, 5000);
+  }, []);
+
+  const setFriendlyWarning = useCallback(
+    (message) => {
+      setWarningBanner(message);
+      clearWarningSoon();
+    },
+    [clearWarningSoon]
+  );
+
+  const markSuccessfulSync = useCallback(() => {
+    const now = new Date().toISOString();
+    setLastSuccessfulSyncAt(now);
+    setApiStatus("connected");
+    setApiConnected(true);
+  }, []);
+
   const handleUnauthorized = useCallback(() => {
     localStorage.removeItem("token");
     localStorage.removeItem("crm_user");
@@ -136,6 +147,11 @@ export default function App() {
     setNotes([]);
     setCustomerDetail(null);
     setSelectedConversationId(null);
+    setApiStatus("unknown");
+    setSocketStatus("unknown");
+    setLastSuccessfulSyncAt(null);
+    setLastInboundSignalAt(null);
+    setWarningBanner("");
   }, []);
 
   const scrollMessagesToBottom = useCallback((smooth = true) => {
@@ -361,7 +377,7 @@ export default function App() {
       });
 
       setConversations(normalized);
-      setApiConnected(true);
+      markSuccessfulSync();
 
       if (normalized.length === 0) {
         setSelectedConversationId(null);
@@ -379,11 +395,12 @@ export default function App() {
       if (err?.response?.status === 401) return;
       console.error("loadConversations error:", err);
       setApiConnected(false);
+      setApiStatus("disconnected");
       setFriendlyError("Failed to load conversations.");
     } finally {
       setLoadingConversations(false);
     }
-  }, [user, scope, statusFilter, search, tryRequest, setFriendlyError]);
+  }, [user, scope, statusFilter, search, tryRequest, setFriendlyError, markSuccessfulSync]);
 
   const loadMessages = useCallback(
     async (conversationId) => {
@@ -416,7 +433,7 @@ export default function App() {
         });
 
         setMessages(normalized);
-        setApiConnected(true);
+        markSuccessfulSync();
 
         setTimeout(() => {
           scrollMessagesToBottom(false);
@@ -425,12 +442,13 @@ export default function App() {
         if (err?.response?.status === 401) return;
         console.error("loadMessages error:", err);
         setApiConnected(false);
+        setApiStatus("disconnected");
         setFriendlyError("Failed to load messages.");
       } finally {
         setLoadingMessages(false);
       }
     },
-    [user, tryRequest, scrollMessagesToBottom, setFriendlyError]
+    [user, tryRequest, scrollMessagesToBottom, setFriendlyError, markSuccessfulSync]
   );
 
   const loadCustomerDetail = useCallback(
@@ -445,7 +463,7 @@ export default function App() {
       try {
         const res = await axios.get(`${API_BASE}/customers/${customerId}`);
         setCustomerDetail(res.data?.customer ?? res.data?.data ?? null);
-        setApiConnected(true);
+        markSuccessfulSync();
       } catch (err) {
         if (err?.response?.status === 401) {
           handleUnauthorized();
@@ -457,7 +475,7 @@ export default function App() {
         setLoadingCustomer(false);
       }
     },
-    [user, handleUnauthorized]
+    [user, handleUnauthorized, markSuccessfulSync]
   );
 
   const loadTags = useCallback(
@@ -476,7 +494,7 @@ export default function App() {
         ]);
 
         setCustomerTags(normalizeTagList(res.data));
-        setApiConnected(true);
+        markSuccessfulSync();
       } catch (err) {
         if (err?.response?.status === 401) return;
         console.error("loadTags error:", err);
@@ -485,7 +503,7 @@ export default function App() {
         setLoadingTags(false);
       }
     },
-    [user, tryRequest]
+    [user, tryRequest, markSuccessfulSync]
   );
 
   const loadNotes = useCallback(
@@ -500,7 +518,7 @@ export default function App() {
       try {
         const res = await axios.get(`${API_BASE}/customers/${customerId}/notes`);
         setNotes(normalizeNotesList(res.data));
-        setApiConnected(true);
+        markSuccessfulSync();
       } catch (err) {
         if (err?.response?.status === 401) {
           handleUnauthorized();
@@ -512,7 +530,7 @@ export default function App() {
         setLoadingNotes(false);
       }
     },
-    [user, handleUnauthorized]
+    [user, handleUnauthorized, markSuccessfulSync]
   );
 
   const markReadByConversationId = useCallback(
@@ -532,12 +550,13 @@ export default function App() {
             sameId(c.id, conversationId) ? { ...c, unread_count: 0 } : c
           )
         );
+        markSuccessfulSync();
       } catch (err) {
         if (err?.response?.status === 401) return;
         console.error("markReadByConversationId error:", err);
       }
     },
-    [user, tryRequest]
+    [user, tryRequest, markSuccessfulSync]
   );
 
   const markRead = useCallback(async () => {
@@ -600,6 +619,47 @@ export default function App() {
     }, 120);
   }, [messages, scrollMessagesToBottom]);
 
+  // ===== API 心跳 =====
+  useEffect(() => {
+    if (!user) return;
+
+    const heartbeat = setInterval(async () => {
+      try {
+        await axios.get(`${API_BASE}/conversations`, {
+          params: { limit: 1 },
+        });
+        setApiStatus("connected");
+        setApiConnected(true);
+      } catch (err) {
+        if (err?.response?.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+        setApiStatus("disconnected");
+        setApiConnected(false);
+      }
+    }, 15000);
+
+    return () => clearInterval(heartbeat);
+  }, [user, handleUnauthorized]);
+
+  // ===== 无新消息预警 =====
+  useEffect(() => {
+    if (!user) return;
+
+    const interval = setInterval(() => {
+      if (!lastInboundSignalAt) return;
+
+      const diff = Date.now() - new Date(lastInboundSignalAt).getTime();
+
+      if (diff > 10 * 60 * 1000) {
+        setFriendlyWarning("No new incoming activity for over 10 minutes. Please check webhook/system status.");
+      }
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [user, lastInboundSignalAt, setFriendlyWarning]);
+
   useEffect(() => {
     if (!user) return;
 
@@ -614,10 +674,12 @@ export default function App() {
 
     socket.on("connect", () => {
       console.log("socket connected:", socket.id);
+      setSocketStatus("connected");
     });
 
     socket.on("disconnect", () => {
       console.log("socket disconnected");
+      setSocketStatus("disconnected");
     });
 
     socket.on("conversation:updated", ({ conversation }) => {
@@ -636,6 +698,8 @@ export default function App() {
         });
       });
 
+      markSuccessfulSync();
+
       if (sameId(selectedConversationIdRef.current, incoming.id)) {
         loadMessages(incoming.id);
       }
@@ -644,6 +708,9 @@ export default function App() {
     socket.on("message:new", ({ conversationId, message }) => {
       const normalizedMessage = normalizeMessage(message);
       const currentConversationId = selectedConversationIdRef.current;
+
+      setLastInboundSignalAt(new Date().toISOString());
+      markSuccessfulSync();
 
       if (sameId(currentConversationId, conversationId)) {
         setMessages((prev) => {
@@ -671,6 +738,7 @@ export default function App() {
         prev.map((m) => (sameId(m.id, messageId) ? { ...m, status: status ?? m.status } : m))
       );
 
+      markSuccessfulSync();
       loadConversations();
     });
 
@@ -679,13 +747,14 @@ export default function App() {
         setMessages((prev) => prev.filter((m) => !sameId(m.id, messageId)));
       }
 
+      markSuccessfulSync();
       loadConversations();
     });
 
     return () => {
       socket.disconnect();
     };
-  }, [user, loadConversations, loadMessages, scrollMessagesToBottom]);
+  }, [user, loadConversations, loadMessages, scrollMessagesToBottom, markSuccessfulSync]);
 
   async function sendReply() {
     if (!selectedConversation?.id || !replyText.trim() || sending) return;
@@ -699,6 +768,7 @@ export default function App() {
       });
 
       setReplyText("");
+      markSuccessfulSync();
       await loadMessages(selectedConversation.id);
       await loadConversations();
     } catch (err) {
@@ -734,6 +804,7 @@ export default function App() {
           }),
       ]);
 
+      markSuccessfulSync();
       await loadConversations();
     } catch (err) {
       if (err?.response?.status === 401) return;
@@ -758,6 +829,7 @@ export default function App() {
           }),
       ]);
 
+      markSuccessfulSync();
       await loadConversations();
     } catch (err) {
       if (err?.response?.status === 401) return;
@@ -785,6 +857,7 @@ export default function App() {
       ]);
 
       setNewTag("");
+      markSuccessfulSync();
       await loadTags(selectedCustomerId);
     } catch (err) {
       if (err?.response?.status === 401) return;
@@ -810,6 +883,7 @@ export default function App() {
           }),
       ]);
 
+      markSuccessfulSync();
       await loadTags(selectedCustomerId);
     } catch (err) {
       if (err?.response?.status === 401) return;
@@ -829,6 +903,7 @@ export default function App() {
       });
 
       setNoteInput("");
+      markSuccessfulSync();
       await loadNotes(selectedCustomerId);
     } catch (err) {
       if (err?.response?.status === 401) {
@@ -850,6 +925,7 @@ export default function App() {
 
     try {
       await axios.delete(`${API_BASE}/customers/notes/${noteId}`);
+      markSuccessfulSync();
       await loadNotes(selectedCustomerId);
     } catch (err) {
       if (err?.response?.status === 401) {
@@ -873,6 +949,7 @@ export default function App() {
           }),
       ]);
 
+      markSuccessfulSync();
       await loadConversations();
       await loadMessages(selectedConversation.id);
     } catch (err) {
@@ -894,6 +971,7 @@ export default function App() {
           }),
       ]);
 
+      markSuccessfulSync();
       await loadConversations();
       await loadMessages(selectedConversation.id);
     } catch (err) {
@@ -915,6 +993,7 @@ export default function App() {
           }),
       ]);
 
+      markSuccessfulSync();
       await loadConversations();
       await loadMessages(selectedConversation.id);
     } catch (err) {
@@ -934,6 +1013,11 @@ export default function App() {
     setNotes([]);
     setCustomerDetail(null);
     setSelectedConversationId(null);
+    setApiStatus("unknown");
+    setSocketStatus("unknown");
+    setLastSuccessfulSyncAt(null);
+    setLastInboundSignalAt(null);
+    setWarningBanner("");
 
     if (socketRef.current) {
       socketRef.current.disconnect();
@@ -960,13 +1044,34 @@ export default function App() {
     "";
 
   const filteredCounts = useMemo(() => {
-  return {
-    all: conversations.length,
-    open: conversations.filter((c) => c.status === "open").length,
-    unread: conversations.filter((c) => Number(c.unread_count) > 0).length,
-    closed: conversations.filter((c) => c.status === "closed").length,
-  };
-}, [conversations]);
+    return {
+      all: conversations.length,
+      open: conversations.filter((c) => c.status === "open").length,
+      unread: conversations.filter((c) => Number(c.unread_count) > 0).length,
+      closed: conversations.filter((c) => c.status === "closed").length,
+    };
+  }, [conversations]);
+
+  const systemHealth = useMemo(() => {
+    if (apiStatus === "disconnected") return "down";
+    if (socketStatus === "disconnected") return "warning";
+    if (apiStatus === "unknown" || socketStatus === "unknown") return "warning";
+    return "healthy";
+  }, [apiStatus, socketStatus]);
+
+  const systemHealthLabel =
+    systemHealth === "healthy"
+      ? "🟢 System Healthy"
+      : systemHealth === "warning"
+      ? "🟡 Warning"
+      : "🔴 System Down";
+
+  const systemHealthClass =
+    systemHealth === "healthy"
+      ? "bg-green-100 text-green-700 border border-green-200"
+      : systemHealth === "warning"
+      ? "bg-yellow-100 text-yellow-700 border border-yellow-200"
+      : "bg-red-100 text-red-700 border border-red-200";
 
   if (!authReady) {
     return (
@@ -992,6 +1097,9 @@ export default function App() {
             <div className="text-xs text-gray-400 mt-1">
               Logged in as {user?.username}
             </div>
+            <div className="text-xs text-gray-400 mt-1">
+              Last sync: {lastSuccessfulSyncAt ? formatDateTime(lastSuccessfulSyncAt) : "No sync yet"}
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -1003,14 +1111,8 @@ export default function App() {
               Refresh
             </button>
 
-            <div
-              className={`px-3 py-2 rounded text-sm ${
-                apiConnected
-                  ? "bg-green-100 text-green-700 border border-green-200"
-                  : "bg-red-100 text-red-700 border border-red-200"
-              }`}
-            >
-              {apiConnected ? "API connected" : "API disconnected"}
+            <div className={`px-3 py-2 rounded text-sm ${systemHealthClass}`}>
+              {systemHealthLabel}
             </div>
 
             <button
@@ -1022,6 +1124,12 @@ export default function App() {
             </button>
           </div>
         </div>
+
+        {warningBanner ? (
+          <div className="px-4 py-2 text-sm bg-yellow-50 border-b border-yellow-200 text-yellow-800">
+            {warningBanner}
+          </div>
+        ) : null}
 
         {errorBanner ? (
           <div className="px-4 py-2 text-sm bg-red-50 border-b border-red-200 text-red-700">
