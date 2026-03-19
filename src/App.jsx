@@ -324,25 +324,30 @@ export default function App() {
     setLoadingConversations(true);
 
     try {
-      const res = await tryRequest([
-        () =>
-          axios.get(`${API_BASE}/conversations`, {
-            params: {
-              scope,
-              status: statusFilter !== "all" ? statusFilter : undefined,
-              q: search || undefined,
-            },
-          }),
-        () =>
-          axios.get(`${API_BASE}/conversations`, {
-            params: {
-              filter: scope,
-              status: statusFilter !== "all" ? statusFilter : undefined,
-              search: search || undefined,
-            },
-          }),
-        () => axios.get(`${API_BASE}/conversations`),
-      ]);
+      const backendStatus =
+  scope !== "all"
+    ? scope
+    : statusFilter !== "all"
+    ? statusFilter
+    : "all";
+
+const res = await tryRequest([
+  () =>
+    axios.get(`${API_BASE}/conversations`, {
+      params: {
+        status: backendStatus,
+        search: search || undefined,
+      },
+    }),
+  () =>
+    axios.get(`${API_BASE}/conversations`, {
+      params: {
+        status: backendStatus,
+        q: search || undefined,
+      },
+    }),
+  () => axios.get(`${API_BASE}/conversations`),
+]);
 
       const rows =
         res.data?.conversations ??
@@ -352,13 +357,11 @@ export default function App() {
 
       let normalized = rows.map(normalizeConversation);
 
-      if (scope === "mine") {
-        normalized = normalized.filter((c) => !!c.assigned_to);
-      } else if (scope === "unassigned") {
-        normalized = normalized.filter((c) => !c.assigned_to);
-      } else if (scope === "failed") {
-        normalized = normalized.filter((c) => Number(c.failed_count) > 0);
-      }
+      if (scope === "unassigned") {
+  normalized = normalized.filter((c) => !c.assigned_to);
+} else if (scope === "failed") {
+  normalized = normalized.filter((c) => Number(c.failed_count) > 0);
+}
 
       if (statusFilter === "open") {
         normalized = normalized.filter((c) => c.status === "open");
