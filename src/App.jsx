@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { io } from "socket.io-client";
-import Login from "./Login";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api";
@@ -29,15 +28,93 @@ function getDisplayName(row) {
   );
 }
 
+function LoginScreen({ onLoginSuccess }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [errorText, setErrorText] = useState("");
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+
+    try {
+      setLoading(true);
+      setErrorText("");
+
+      const res = await axios.post(`${API_BASE}/auth/login`, {
+        username: username.trim(),
+        password,
+      });
+
+      if (!res.data?.success || !res.data?.token || !res.data?.user) {
+        throw new Error("Invalid login response");
+      }
+
+      localStorage.setItem("token", res.data.token);
+      localStorage.setItem("crm_user", JSON.stringify(res.data.user));
+
+      onLoginSuccess(res.data.user);
+    } catch (err) {
+      setErrorText(
+        err?.response?.data?.message || err?.message || "Login failed"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
+      <div className="w-full max-w-md rounded-3xl bg-white shadow-lg p-8">
+        <div className="text-3xl font-bold text-center">Voltgo WhatsApp CRM</div>
+        <div className="text-center text-gray-500 mt-3">
+          Please sign in to continue
+        </div>
+
+        <form onSubmit={handleLogin} className="mt-8 space-y-5">
+          <input
+            type="text"
+            placeholder="Username"
+            className="w-full rounded-2xl border px-5 py-4 text-lg outline-none focus:ring-2 focus:ring-gray-300"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+          />
+
+          <input
+            type="password"
+            placeholder="Password"
+            className="w-full rounded-2xl border px-5 py-4 text-lg outline-none focus:ring-2 focus:ring-gray-300"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+          />
+
+          {errorText ? (
+            <div className="text-sm text-red-600">{errorText}</div>
+          ) : null}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-2xl bg-black text-white py-4 text-xl font-semibold disabled:opacity-60"
+          >
+            {loading ? "Logging in..." : "Login"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
 
   const [apiConnected, setApiConnected] = useState(true);
 
-  // ===== 健康监控 =====
-  const [apiStatus, setApiStatus] = useState("unknown"); // unknown | connected | disconnected
-  const [socketStatus, setSocketStatus] = useState("unknown"); // unknown | connected | disconnected
+  const [apiStatus, setApiStatus] = useState("unknown");
+  const [socketStatus, setSocketStatus] = useState("unknown");
   const [lastSuccessfulSyncAt, setLastSuccessfulSyncAt] = useState(null);
   const [lastInboundSignalAt, setLastInboundSignalAt] = useState(null);
   const [warningBanner, setWarningBanner] = useState("");
@@ -71,6 +148,15 @@ export default function App() {
   const [savingTag, setSavingTag] = useState(false);
 
   const [errorBanner, setErrorBanner] = useState("");
+
+  // Change Password states
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [changePasswordError, setChangePasswordError] = useState("");
+  const [changePasswordSuccess, setChangePasswordSuccess] = useState("");
 
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -325,29 +411,29 @@ export default function App() {
 
     try {
       const backendStatus =
-  scope !== "all"
-    ? scope
-    : statusFilter !== "all"
-    ? statusFilter
-    : "all";
+        scope !== "all"
+          ? scope
+          : statusFilter !== "all"
+          ? statusFilter
+          : "all";
 
-const res = await tryRequest([
-  () =>
-    axios.get(`${API_BASE}/conversations`, {
-      params: {
-        status: backendStatus,
-        search: search || undefined,
-      },
-    }),
-  () =>
-    axios.get(`${API_BASE}/conversations`, {
-      params: {
-        status: backendStatus,
-        q: search || undefined,
-      },
-    }),
-  () => axios.get(`${API_BASE}/conversations`),
-]);
+      const res = await tryRequest([
+        () =>
+          axios.get(`${API_BASE}/conversations`, {
+            params: {
+              status: backendStatus,
+              search: search || undefined,
+            },
+          }),
+        () =>
+          axios.get(`${API_BASE}/conversations`, {
+            params: {
+              status: backendStatus,
+              q: search || undefined,
+            },
+          }),
+        () => axios.get(`${API_BASE}/conversations`),
+      ]);
 
       const rows =
         res.data?.conversations ??
@@ -358,10 +444,12 @@ const res = await tryRequest([
       let normalized = rows.map(normalizeConversation);
 
       if (scope === "unassigned") {
-  normalized = normalized.filter((c) => !c.assigned_to);
-} else if (scope === "failed") {
-  normalized = normalized.filter((c) => Number(c.failed_count) > 0);
-}
+        normalized = normalized.filter((c) => !c.assigned_to);
+      } else if (scope === "failed") {
+        normalized = normalized.filter((c) => Number(c.failed_count) > 0);
+      } else if (scope === "mine" && user?.id) {
+        normalized = normalized.filter((c) => String(c.assigned_to || "") === String(user.id));
+      }
 
       if (statusFilter === "open") {
         normalized = normalized.filter((c) => c.status === "open");
@@ -637,7 +725,6 @@ const res = await tryRequest([
     }, 120);
   }, [messages, scrollMessagesToBottom]);
 
-  // ===== API 心跳 =====
   useEffect(() => {
     if (!user) return;
 
@@ -661,7 +748,6 @@ const res = await tryRequest([
     return () => clearInterval(heartbeat);
   }, [user, handleUnauthorized]);
 
-  // ===== 无新消息预警 =====
   useEffect(() => {
     if (!user) return;
 
@@ -1021,6 +1107,76 @@ const res = await tryRequest([
     }
   }
 
+  async function handleChangePassword() {
+    setChangePasswordError("");
+    setChangePasswordSuccess("");
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setChangePasswordError("All password fields are required.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setChangePasswordError("New password and confirm password do not match.");
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setChangePasswordError("New password must be at least 6 characters.");
+      return;
+    }
+
+    if (currentPassword === newPassword) {
+      setChangePasswordError("New password must be different from current password.");
+      return;
+    }
+
+    setChangingPassword(true);
+
+    try {
+      const res = await axios.patch(`${API_BASE}/auth/change-password`, {
+        currentPassword,
+        newPassword,
+        confirmPassword,
+      });
+
+      if (res.data?.success) {
+        setChangePasswordSuccess("Password changed successfully.");
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+
+        setTimeout(() => {
+          setShowChangePassword(false);
+          setChangePasswordSuccess("");
+        }, 1200);
+      } else {
+        setChangePasswordError(res.data?.message || "Failed to change password.");
+      }
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+
+      setChangePasswordError(
+        err?.response?.data?.message || err?.message || "Failed to change password."
+      );
+    } finally {
+      setChangingPassword(false);
+    }
+  }
+
+  function closeChangePasswordModal() {
+    if (changingPassword) return;
+    setShowChangePassword(false);
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setChangePasswordError("");
+    setChangePasswordSuccess("");
+  }
+
   function handleLogout() {
     localStorage.removeItem("token");
     localStorage.removeItem("crm_user");
@@ -1100,7 +1256,7 @@ const res = await tryRequest([
   }
 
   if (!user) {
-    return <Login onLogin={setUser} />;
+    return <LoginScreen onLoginSuccess={setUser} />;
   }
 
   return (
@@ -1127,6 +1283,14 @@ const res = await tryRequest([
               type="button"
             >
               Refresh
+            </button>
+
+            <button
+              onClick={() => setShowChangePassword(true)}
+              className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
+              type="button"
+            >
+              Change Password
             </button>
 
             <div className={`px-3 py-2 rounded text-sm ${systemHealthClass}`}>
@@ -1615,6 +1779,74 @@ const res = await tryRequest([
           </div>
         </div>
       </div>
+
+      {showChangePassword && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl p-6">
+            <div className="text-xl font-semibold">Change Password</div>
+            <div className="text-sm text-gray-500 mt-1">
+              Update your account password
+            </div>
+
+            <div className="mt-5 space-y-3">
+              <input
+                type="password"
+                placeholder="Current Password"
+                className="w-full border rounded px-3 py-2 text-sm"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                autoComplete="current-password"
+              />
+
+              <input
+                type="password"
+                placeholder="New Password"
+                className="w-full border rounded px-3 py-2 text-sm"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+
+              <input
+                type="password"
+                placeholder="Confirm New Password"
+                className="w-full border rounded px-3 py-2 text-sm"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+
+              {changePasswordError ? (
+                <div className="text-sm text-red-600">{changePasswordError}</div>
+              ) : null}
+
+              {changePasswordSuccess ? (
+                <div className="text-sm text-green-600">{changePasswordSuccess}</div>
+              ) : null}
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={closeChangePasswordModal}
+                disabled={changingPassword}
+                className="px-4 py-2 rounded border bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
+                type="button"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleChangePassword}
+                disabled={changingPassword}
+                className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"
+                type="button"
+              >
+                {changingPassword ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
