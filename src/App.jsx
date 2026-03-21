@@ -204,8 +204,15 @@ useEffect(() => {
         if (mediaUrlMap[media.id]) continue;
 
         try {
+          const token = localStorage.getItem("token");
+
           const res = await fetch(
-  `${API_BASE}/media/${media.id}/url`
+  `${API_BASE}/media/${media.id}/url`,
+  {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  }
 );
           const data = await res.json();
           console.log("media url response:", data);
@@ -1566,7 +1573,7 @@ useEffect(() => {
                     <div className="text-sm text-gray-500">No messages yet.</div>
                   ) : (
                     <div className="space-y-3">
-                      {messages.map((msg) => {
+                      {messages.map((msg) => { 
                         console.log("msg =", msg);
                         const isOutbound =
                           msg.direction === "outbound" ||
