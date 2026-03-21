@@ -198,9 +198,9 @@ useEffect(() => {
         if (mediaUrlMap[media.id]) continue;
 
         try {
-          const res = await fetch(
-            `http://localhost:3000/api/media/${media.id}/url`
-          );
+          const res = aawait fetch(
+  `${API_BASE}/media/${media.id}/url`
+);
           const data = await res.json();
 
           if (data.success) {
