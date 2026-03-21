@@ -190,11 +190,15 @@ export default function App() {
 
 useEffect(() => {
   const loadMediaUrls = async () => {
+    console.log("messages changed:", messages);
+
     const newMap = {};
 
     for (const msg of messages) {
+      console.log("msg.id =", msg.id, "media_assets =", msg.media_assets);
       if (msg.media_assets?.length > 0) {
         const media = msg.media_assets[0];
+        console.log("Fetching media URL for media.id =", media.id);
 
         // 避免重复请求
         if (mediaUrlMap[media.id]) continue;
@@ -204,6 +208,7 @@ useEffect(() => {
   `${API_BASE}/media/${media.id}/url`
 );
           const data = await res.json();
+          console.log("media url response:", data);
 
           if (data.success) {
             newMap[media.id] = data.data.url;
@@ -1562,6 +1567,7 @@ useEffect(() => {
                   ) : (
                     <div className="space-y-3">
                       {messages.map((msg) => {
+                        console.log("msg =", msg);
                         const isOutbound =
                           msg.direction === "outbound" ||
                           msg.direction === "out" ||
