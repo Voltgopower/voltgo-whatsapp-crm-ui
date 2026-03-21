@@ -33,7 +33,7 @@ function LoginScreen({ onLoginSuccess }) {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState("");
-
+ 
   const handleLogin = async (e) => {
     e.preventDefault();
 
@@ -122,6 +122,7 @@ export default function App() {
   const [conversations, setConversations] = useState([]);
   const [selectedConversationId, setSelectedConversationId] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [mediaUrlMap, setMediaUrlMap] = useState({});
 
   const [search, setSearch] = useState("");
   const [scope, setScope] = useState("all");
@@ -185,6 +186,41 @@ export default function App() {
     setAuthReady(true);
   }, []);
 
+useEffect(() => {
+  const loadMediaUrls = async () => {
+    const newMap = {};
+
+    for (const msg of messages) {
+      if (msg.media_assets?.length > 0) {
+        const media = msg.media_assets[0];
+
+        // 避免重复请求
+        if (mediaUrlMap[media.id]) continue;
+
+        try {
+          const res = await fetch(
+            `http://localhost:3000/api/media/${media.id}/url`
+          );
+          const data = await res.json();
+
+          if (data.success) {
+            newMap[media.id] = data.data.url;
+          }
+        } catch (err) {
+          console.error("load media url error", err);
+        }
+      }
+    }
+
+    if (Object.keys(newMap).length > 0) {
+      setMediaUrlMap((prev) => ({ ...prev, ...newMap }));
+    }
+  };
+
+  if (messages.length > 0) {
+    loadMediaUrls();
+  }
+}, [messages]);
   useEffect(() => {
     selectedConversationIdRef.current = selectedConversationId;
   }, [selectedConversationId]);
@@ -351,6 +387,7 @@ export default function App() {
         new Date().toISOString(),
       status: row.status ?? "sent",
       type: row.type ?? row.message_type ?? "text",
+      media_assets: row.media_assets ?? [],
       raw: row,
     };
   }
@@ -1528,6 +1565,9 @@ export default function App() {
                           msg.direction === "out" ||
                           msg.direction === "sent";
 
+                        const media = msg.media_assets?.[0];
+                        const mediaUrl = media ? mediaUrlMap[media.id] : null;
+
                         return (
                           <div
                             key={msg.id}
@@ -1540,9 +1580,32 @@ export default function App() {
                                   : "bg-white text-gray-900 border"
                               }`}
                             >
-                              <div className="whitespace-pre-wrap break-words text-sm">
-                                {msg.content}
-                              </div>
+                              {msg.content ? (
+                                <div className="whitespace-pre-wrap break-words text-sm">
+                                  {msg.content}
+                                </div>
+                              ) : null}
+
+                              {media && mediaUrl ? (
+                                <div className="mt-2">
+                                  {media.media_type === "image" ? (
+                                    <img
+                                      src={mediaUrl}
+                                      alt={media.original_filename || "image"}
+                                      className="max-w-[220px] rounded-lg cursor-pointer"
+                                    />
+                                  ) : null}
+
+                                  {media.media_type === "video" ? (
+                                    <video
+                                      src={mediaUrl}
+                                      controls
+                                      className="max-w-[220px] rounded-lg"
+                                    />
+                                  ) : null}
+                                </div>
+                              ) : null}
+
                               <div
                                 className={`mt-1 text-[11px] ${
                                   isOutbound ? "text-blue-100" : "text-gray-400"
