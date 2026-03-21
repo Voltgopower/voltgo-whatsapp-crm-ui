@@ -8,6 +8,8 @@ const API_BASE =
 const SOCKET_BASE =
   import.meta.env.VITE_SOCKET_BASE || "http://localhost:3000";
 
+console.log("API_BASE =", API_BASE);
+
 function sameId(a, b) {
   return String(a ?? "").trim() === String(b ?? "").trim();
 }
