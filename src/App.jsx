@@ -198,7 +198,7 @@ useEffect(() => {
         if (mediaUrlMap[media.id]) continue;
 
         try {
-          const res = aawait fetch(
+          const res = await fetch(
   `${API_BASE}/media/${media.id}/url`
 );
           const data = await res.json();
