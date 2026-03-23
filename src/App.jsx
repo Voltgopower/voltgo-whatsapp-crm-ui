@@ -30,12 +30,32 @@ function getDisplayName(row) {
   );
 }
 
+function getMediaKind(media = {}) {
+  if (media.media_type) return media.media_type;
+
+  const mime = media.mime_type || media.mimetype || "";
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/")) return "audio";
+  return "file";
+}
+
+function getMediaFileName(media = {}) {
+  return (
+    media.original_filename ||
+    media.file_name ||
+    media.filename ||
+    media.name ||
+    "attachment"
+  );
+}
+
 function LoginScreen({ onLoginSuccess }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorText, setErrorText] = useState("");
- 
+
   const handleLogin = async (e) => {
     e.preventDefault();
 
@@ -152,7 +172,6 @@ export default function App() {
 
   const [errorBanner, setErrorBanner] = useState("");
 
-  // Change Password states
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -188,53 +207,6 @@ export default function App() {
     setAuthReady(true);
   }, []);
 
-useEffect(() => {
-  const loadMediaUrls = async () => {
-    console.log("messages changed:", messages);
-
-    const newMap = {};
-
-    for (const msg of messages) {
-      console.log("msg.id =", msg.id, "media_assets =", msg.media_assets);
-      if (msg.media_assets?.length > 0) {
-        const media = msg.media_assets[0];
-        console.log("Fetching media URL for media.id =", media.id);
-
-        // 避免重复请求
-        if (mediaUrlMap[media.id]) continue;
-
-        try {
-          const token = localStorage.getItem("token");
-
-          const res = await fetch(
-  `${API_BASE}/media/${media.id}/url`,
-  {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  }
-);
-          const data = await res.json();
-          console.log("media url response:", data);
-
-          if (data.success) {
-            newMap[media.id] = data.data.url;
-          }
-        } catch (err) {
-          console.error("load media url error", err);
-        }
-      }
-    }
-
-    if (Object.keys(newMap).length > 0) {
-      setMediaUrlMap((prev) => ({ ...prev, ...newMap }));
-    }
-  };
-
-  if (messages.length > 0) {
-    loadMediaUrls();
-  }
-}, [messages]);
   useEffect(() => {
     selectedConversationIdRef.current = selectedConversationId;
   }, [selectedConversationId]);
@@ -295,6 +267,7 @@ useEffect(() => {
     setLastSuccessfulSyncAt(null);
     setLastInboundSignalAt(null);
     setWarningBanner("");
+    setMediaUrlMap({});
   }, []);
 
   const scrollMessagesToBottom = useCallback((smooth = true) => {
@@ -388,6 +361,7 @@ useEffect(() => {
       content:
         row.content ??
         row.text ??
+        row.text_content ??
         row.message_text ??
         row.body ??
         row.preview ??
@@ -401,7 +375,7 @@ useEffect(() => {
         new Date().toISOString(),
       status: row.status ?? "sent",
       type: row.type ?? row.message_type ?? "text",
-      media_assets: row.media_assets ?? [],
+      media_assets: Array.isArray(row.media_assets) ? row.media_assets : [],
       raw: row,
     };
   }
@@ -557,6 +531,7 @@ useEffect(() => {
     async (conversationId) => {
       if (!conversationId || !user) {
         setMessages([]);
+        setMediaUrlMap({});
         return;
       }
 
@@ -583,7 +558,10 @@ useEffect(() => {
           return String(a.id || "").localeCompare(String(b.id || ""));
         });
 
+        console.log("normalized messages:", normalized);
+
         setMessages(normalized);
+        setMediaUrlMap({});
         markSuccessfulSync();
 
         setTimeout(() => {
@@ -771,19 +749,68 @@ useEffect(() => {
   useEffect(() => {
     if (!messages.length) return;
 
+    console.log("messages changed:", messages);
+    console.log("=== last message in state ===", messages[messages.length - 1]);
+
     setTimeout(() => {
       scrollMessagesToBottom(false);
     }, 120);
   }, [messages, scrollMessagesToBottom]);
 
   useEffect(() => {
+    const loadMediaUrls = async () => {
+      const newMap = {};
+
+      for (const msg of messages) {
+        if (!msg.media_assets?.length) continue;
+
+        for (const media of msg.media_assets) {
+          if (!media?.id) continue;
+          if (mediaUrlMap[media.id]) continue;
+
+          console.log("msg.id =", msg.id, "media_assets =", msg.media_assets);
+          console.log("Fetching media URL for media.id =", media.id);
+
+          try {
+            const token = localStorage.getItem("token");
+
+            const res = await fetch(`${API_BASE}/media/${media.id}/url`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            });
+
+            const data = await res.json();
+            console.log("media url response:", data);
+
+            if (data?.success && data?.data?.url) {
+              newMap[media.id] = data.data.url;
+            } else if (data?.url) {
+              newMap[media.id] = data.url;
+            }
+          } catch (err) {
+            console.error("load media url error", err);
+          }
+        }
+      }
+
+      if (Object.keys(newMap).length > 0) {
+        setMediaUrlMap((prev) => ({ ...prev, ...newMap }));
+      }
+    };
+
+    if (messages.length > 0) {
+      loadMediaUrls();
+    }
+  }, [messages, mediaUrlMap]);
+
+  useEffect(() => {
     if (!user) return;
 
     const heartbeat = setInterval(async () => {
       try {
-        await axios.get(`${API_BASE}/conversations`, {
-          params: { limit: 1 },
-        });
+        console.log("🔥 NEW HEARTBEAT USING /health");
+        await axios.get(`${API_BASE}/health`);
         setApiStatus("connected");
         setApiConnected(true);
       } catch (err) {
@@ -1243,6 +1270,7 @@ useEffect(() => {
     setLastSuccessfulSyncAt(null);
     setLastInboundSignalAt(null);
     setWarningBanner("");
+    setMediaUrlMap({});
 
     if (socketRef.current) {
       socketRef.current.disconnect();
@@ -1573,15 +1601,11 @@ useEffect(() => {
                     <div className="text-sm text-gray-500">No messages yet.</div>
                   ) : (
                     <div className="space-y-3">
-                      {messages.map((msg) => { 
-                        console.log("msg =", msg);
+                      {messages.map((msg) => {
                         const isOutbound =
                           msg.direction === "outbound" ||
                           msg.direction === "out" ||
                           msg.direction === "sent";
-
-                        const media = msg.media_assets?.[0];
-                        const mediaUrl = media ? mediaUrlMap[media.id] : null;
 
                         return (
                           <div
@@ -1601,23 +1625,50 @@ useEffect(() => {
                                 </div>
                               ) : null}
 
-                              {media && mediaUrl ? (
-                                <div className="mt-2">
-                                  {media.media_type === "image" ? (
-                                    <img
-                                      src={mediaUrl}
-                                      alt={media.original_filename || "image"}
-                                      className="max-w-[220px] rounded-lg cursor-pointer"
-                                    />
-                                  ) : null}
+                              {msg.media_assets?.length > 0 ? (
+                                <div className="mt-2 space-y-2">
+                                  {msg.media_assets.map((media) => {
+                                    const mediaUrl = media?.id ? mediaUrlMap[media.id] : null;
+                                    if (!mediaUrl) return null;
 
-                                  {media.media_type === "video" ? (
-                                    <video
-                                      src={mediaUrl}
-                                      controls
-                                      className="max-w-[220px] rounded-lg"
-                                    />
-                                  ) : null}
+                                    const mediaType = getMediaKind(media);
+                                    const fileName = getMediaFileName(media);
+
+                                    return (
+                                      <div key={media.id || `${msg.id}-${fileName}`}>
+                                        {mediaType === "image" ? (
+                                          <img
+                                            src={mediaUrl}
+                                            alt={fileName}
+                                            className="max-w-[220px] rounded-lg cursor-pointer"
+                                          />
+                                        ) : mediaType === "video" ? (
+                                          <video
+                                            src={mediaUrl}
+                                            controls
+                                            className="max-w-[220px] rounded-lg"
+                                          />
+                                        ) : mediaType === "audio" ? (
+                                          <audio
+                                            src={mediaUrl}
+                                            controls
+                                            className="max-w-[220px]"
+                                          />
+                                        ) : (
+                                          <a
+                                            href={mediaUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className={`text-sm underline break-all ${
+                                              isOutbound ? "text-blue-100" : "text-blue-600"
+                                            }`}
+                                          >
+                                            {fileName}
+                                          </a>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               ) : null}
 
