@@ -153,6 +153,8 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState("all");
 
   const [replyText, setReplyText] = useState("");
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [sendingMedia, setSendingMedia] = useState(false);
   const [assignInput, setAssignInput] = useState("");
   const [newTag, setNewTag] = useState("");
   const [noteInput, setNoteInput] = useState("");
@@ -185,6 +187,7 @@ export default function App() {
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
   const selectedConversationIdRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const assignableUsers = [
     { id: 1, username: "admin", role: "admin", label: "admin (admin)" },
@@ -272,6 +275,7 @@ export default function App() {
     setMediaUrlMap({});
     setPreviewImageUrl("");
     setPreviewImageName("");
+    setSelectedFile(null);
   }, []);
 
   const closeImagePreview = useCallback(() => {
@@ -960,6 +964,11 @@ export default function App() {
     };
   }, [user, loadConversations, loadMessages, scrollMessagesToBottom, markSuccessfulSync]);
 
+  function handleSelectFile(e) {
+    const file = e.target.files?.[0] || null;
+    setSelectedFile(file);
+  }
+
   async function sendReply() {
     if (!selectedConversation?.id || !replyText.trim() || sending) return;
 
@@ -990,6 +999,74 @@ export default function App() {
       );
     } finally {
       setSending(false);
+    }
+  }
+
+  async function sendMediaMessage() {
+    if (!selectedConversation?.id || !selectedCustomerId || !selectedFile || sendingMedia) {
+      return;
+    }
+
+    setSendingMedia(true);
+
+    try {
+      const token = localStorage.getItem("token");
+
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      formData.append("conversationId", selectedConversation.id);
+      formData.append("customerId", selectedCustomerId);
+      formData.append("caption", replyText?.trim() || "");
+
+      const uploadRes = await fetch(`${API_BASE}/media/upload`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      const uploadData = await uploadRes.json();
+
+      if (!uploadRes.ok || !uploadData?.success || !uploadData?.data?.id) {
+        throw new Error(uploadData?.message || "Media upload failed");
+      }
+
+      const mediaId = uploadData.data.id;
+
+      const sendRes = await axios.post(`${API_BASE}/messages/send-media`, {
+        conversationId: selectedConversation.id,
+        customerId: selectedCustomerId,
+        mediaId,
+        caption: replyText?.trim() || "",
+      });
+
+      if (!sendRes.data?.success) {
+        throw new Error(sendRes.data?.message || "Send media failed");
+      }
+
+      setSelectedFile(null);
+      setReplyText("");
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+
+      markSuccessfulSync();
+      await loadMessages(selectedConversation.id);
+      await loadConversations();
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+
+      console.error("sendMediaMessage error:", err);
+      setFriendlyError(
+        err?.response?.data?.message || err?.message || "Send media failed."
+      );
+    } finally {
+      setSendingMedia(false);
     }
   }
 
@@ -1295,6 +1372,11 @@ export default function App() {
     setMediaUrlMap({});
     setPreviewImageUrl("");
     setPreviewImageName("");
+    setSelectedFile(null);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
 
     if (socketRef.current) {
       socketRef.current.disconnect();
@@ -1717,23 +1799,75 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="p-4 border-t bg-white">
+                <div className="p-4 border-t bg-white space-y-3">
+                  {selectedFile ? (
+                    <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium truncate">{selectedFile.name}</div>
+                        <div className="text-xs text-gray-500">
+                          {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="ml-3 text-sm text-red-600 hover:text-red-700"
+                        onClick={() => {
+                          setSelectedFile(null);
+                          if (fileInputRef.current) fileInputRef.current.value = "";
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : null}
+
                   <div className="flex gap-2">
                     <textarea
                       rows={3}
                       className="flex-1 border rounded px-3 py-2 text-sm"
-                      placeholder="Type a reply..."
+                      placeholder={selectedFile ? "Add a caption..." : "Type a reply..."}
                       value={replyText}
                       onChange={(e) => setReplyText(e.target.value)}
                     />
-                    <button
-                      onClick={sendReply}
-                      disabled={sending}
-                      className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"
-                      type="button"
-                    >
-                      {sending ? "Sending..." : "Send"}
-                    </button>
+
+                    <div className="flex flex-col gap-2">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*,video/*,audio/*,.pdf,.doc,.docx"
+                        className="hidden"
+                        onChange={handleSelectFile}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="px-4 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
+                      >
+                        Upload
+                      </button>
+
+                      {selectedFile ? (
+                        <button
+                          onClick={sendMediaMessage}
+                          disabled={sendingMedia}
+                          className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"
+                          type="button"
+                        >
+                          {sendingMedia ? "Sending..." : "Send File"}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={sendReply}
+                          disabled={sending}
+                          className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"
+                          type="button"
+                        >
+                          {sending ? "Sending..." : "Send"}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </>
