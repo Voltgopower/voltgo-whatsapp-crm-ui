@@ -50,6 +50,18 @@ function getMediaFileName(media = {}) {
   );
 }
 
+function getStatusLabel(status) {
+  const raw = String(status || "").toLowerCase();
+
+  if (raw === "sending") return "⏳ Sending...";
+  if (raw === "sent") return "✔ Sent";
+  if (raw === "delivered") return "✔ Delivered";
+  if (raw === "read") return "👁 Read";
+  if (raw === "failed") return "❌ Failed";
+  if (raw === "received") return "Received";
+  return raw || "";
+}
+
 function LoginScreen({ onLoginSuccess }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -357,12 +369,33 @@ export default function App() {
         row.updatedAt ??
         row.created_at ??
         null,
-      failed_count: Number(row.failed_count ?? row.failedCount ?? (row.has_failed ? 1 : 0)),
+      failed_count: Number(
+        row.failed_count ?? row.failedCount ?? (row.has_failed ? 1 : 0)
+      ),
       raw: row,
     };
   }
 
   function normalizeMessage(row = {}) {
+    const createdAt =
+      row.created_at ??
+      row.createdAt ??
+      row.sent_at ??
+      row.sentAt ??
+      row.timestamp ??
+      new Date().toISOString();
+
+    let status = row.status ?? "sent";
+    const createdAtMs = new Date(createdAt).getTime();
+
+    if (
+      status === "sending" &&
+      Number.isFinite(createdAtMs) &&
+      Date.now() - createdAtMs > 30000
+    ) {
+      status = "failed";
+    }
+
     return {
       id: row.id,
       conversation_id: row.conversation_id ?? row.conversationId ?? null,
@@ -379,15 +412,12 @@ export default function App() {
         row.body ??
         row.preview ??
         "",
-      created_at:
-        row.created_at ??
-        row.createdAt ??
-        row.sent_at ??
-        row.sentAt ??
-        row.timestamp ??
-        new Date().toISOString(),
-      status: row.status ?? "sent",
+      created_at: createdAt,
+      status,
       type: row.type ?? row.message_type ?? "text",
+      wa_message_id: row.wa_message_id ?? row.waMessageId ?? null,
+      whatsapp_message_id:
+        row.whatsapp_message_id ?? row.whatsappMessageId ?? null,
       media_assets: Array.isArray(row.media_assets) ? row.media_assets : [],
       raw: row,
     };
@@ -486,7 +516,9 @@ export default function App() {
       } else if (scope === "failed") {
         normalized = normalized.filter((c) => Number(c.failed_count) > 0);
       } else if (scope === "mine" && user?.id) {
-        normalized = normalized.filter((c) => String(c.assigned_to || "") === String(user.id));
+        normalized = normalized.filter(
+          (c) => String(c.assigned_to || "") === String(user.id)
+        );
       }
 
       if (statusFilter === "open") {
@@ -538,13 +570,20 @@ export default function App() {
     } finally {
       setLoadingConversations(false);
     }
-  }, [user, scope, statusFilter, search, tryRequest, setFriendlyError, markSuccessfulSync]);
+  }, [
+    user,
+    scope,
+    statusFilter,
+    search,
+    tryRequest,
+    setFriendlyError,
+    markSuccessfulSync,
+  ]);
 
   const loadMessages = useCallback(
     async (conversationId) => {
       if (!conversationId || !user) {
         setMessages([]);
-        setMediaUrlMap({});
         return;
       }
 
@@ -571,10 +610,7 @@ export default function App() {
           return String(a.id || "").localeCompare(String(b.id || ""));
         });
 
-        console.log("normalized messages:", normalized);
-
         setMessages(normalized);
-        setMediaUrlMap({});
         markSuccessfulSync();
 
         setTimeout(() => {
@@ -762,12 +798,13 @@ export default function App() {
   useEffect(() => {
     if (!messages.length) return;
 
-    console.log("messages changed:", messages);
-    console.log("=== last message in state ===", messages[messages.length - 1]);
-
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       scrollMessagesToBottom(false);
-    }, 120);
+    }, 200);
+
+    scrollMessagesToBottom(false);
+
+    return () => clearTimeout(timer);
   }, [messages, scrollMessagesToBottom]);
 
   useEffect(() => {
@@ -781,9 +818,6 @@ export default function App() {
           if (!media?.id) continue;
           if (mediaUrlMap[media.id]) continue;
 
-          console.log("msg.id =", msg.id, "media_assets =", msg.media_assets);
-          console.log("Fetching media URL for media.id =", media.id);
-
           try {
             const token = localStorage.getItem("token");
 
@@ -794,7 +828,6 @@ export default function App() {
             });
 
             const data = await res.json();
-            console.log("media url response:", data);
 
             if (data?.success && data?.data?.url) {
               newMap[media.id] = data.data.url;
@@ -861,13 +894,16 @@ export default function App() {
       const diff = Date.now() - new Date(lastInboundSignalAt).getTime();
 
       if (diff > 10 * 60 * 1000) {
-        setFriendlyWarning("No new incoming activity for over 10 minutes. Please check webhook/system status.");
+        setFriendlyWarning(
+          "No new incoming activity for over 10 minutes. Please check webhook/system status."
+        );
       }
     }, 60000);
 
     return () => clearInterval(interval);
   }, [user, lastInboundSignalAt, setFriendlyWarning]);
 
+  // socket
   useEffect(() => {
     if (!user) return;
 
@@ -891,6 +927,8 @@ export default function App() {
     });
 
     socket.on("conversation:updated", ({ conversation }) => {
+      if (!conversation) return;
+
       const incoming = normalizeConversation(conversation);
 
       setConversations((prev) => {
@@ -941,9 +979,16 @@ export default function App() {
       loadConversations();
     });
 
-    socket.on("message:status", ({ messageId, status }) => {
+    socket.on("message:status", ({ messageId, waMessageId, status }) => {
       setMessages((prev) =>
-        prev.map((m) => (sameId(m.id, messageId) ? { ...m, status: status ?? m.status } : m))
+        prev.map((m) => {
+          const sameMessage =
+            sameId(m.id, messageId) ||
+            sameId(m.wa_message_id, waMessageId) ||
+            sameId(m.whatsapp_message_id, waMessageId);
+
+          return sameMessage ? { ...m, status: status ?? m.status } : m;
+        })
       );
 
       markSuccessfulSync();
@@ -963,6 +1008,20 @@ export default function App() {
       socket.disconnect();
     };
   }, [user, loadConversations, loadMessages, scrollMessagesToBottom, markSuccessfulSync]);
+
+  // polling fallback
+  useEffect(() => {
+    if (!user) return;
+
+    const interval = setInterval(() => {
+      if (selectedConversationIdRef.current) {
+        loadMessages(selectedConversationIdRef.current);
+      }
+      loadConversations();
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [user, loadMessages, loadConversations]);
 
   function handleSelectFile(e) {
     const file = e.target.files?.[0] || null;
@@ -1003,7 +1062,12 @@ export default function App() {
   }
 
   async function sendMediaMessage() {
-    if (!selectedConversation?.id || !selectedCustomerId || !selectedFile || sendingMedia) {
+    if (
+      !selectedConversation?.id ||
+      !selectedCustomerId ||
+      !selectedFile ||
+      sendingMedia
+    ) {
       return;
     }
 
@@ -1223,7 +1287,10 @@ export default function App() {
 
     try {
       await tryRequest([
-        () => axios.post(`${API_BASE}/conversations/${selectedConversation.id}/retry-failed`),
+        () =>
+          axios.post(
+            `${API_BASE}/conversations/${selectedConversation.id}/retry-failed`
+          ),
         () =>
           axios.post(`${API_BASE}/failed-messages/retry`, {
             conversationId: selectedConversation.id,
@@ -1245,7 +1312,10 @@ export default function App() {
 
     try {
       await tryRequest([
-        () => axios.post(`${API_BASE}/conversations/${selectedConversation.id}/dismiss-failed`),
+        () =>
+          axios.post(
+            `${API_BASE}/conversations/${selectedConversation.id}/dismiss-failed`
+          ),
         () =>
           axios.post(`${API_BASE}/failed-messages/dismiss`, {
             conversationId: selectedConversation.id,
@@ -1267,7 +1337,10 @@ export default function App() {
 
     try {
       await tryRequest([
-        () => axios.delete(`${API_BASE}/conversations/${selectedConversation.id}/failed-messages`),
+        () =>
+          axios.delete(
+            `${API_BASE}/conversations/${selectedConversation.id}/failed-messages`
+          ),
         () =>
           axios.post(`${API_BASE}/failed-messages/delete`, {
             conversationId: selectedConversation.id,
@@ -1304,7 +1377,9 @@ export default function App() {
     }
 
     if (currentPassword === newPassword) {
-      setChangePasswordError("New password must be different from current password.");
+      setChangePasswordError(
+        "New password must be different from current password."
+      );
       return;
     }
 
@@ -1328,7 +1403,9 @@ export default function App() {
           setChangePasswordSuccess("");
         }, 1200);
       } else {
-        setChangePasswordError(res.data?.message || "Failed to change password.");
+        setChangePasswordError(
+          res.data?.message || "Failed to change password."
+        );
       }
     } catch (err) {
       if (err?.response?.status === 401) {
@@ -1337,7 +1414,9 @@ export default function App() {
       }
 
       setChangePasswordError(
-        err?.response?.data?.message || err?.message || "Failed to change password."
+        err?.response?.data?.message ||
+          err?.message ||
+          "Failed to change password."
       );
     } finally {
       setChangingPassword(false);
@@ -1393,14 +1472,9 @@ export default function App() {
     selectedConversation?.phone ||
     "Unknown";
 
-  const customerPhone =
-    customerDetail?.phone ||
-    selectedConversation?.phone ||
-    "-";
+  const customerPhone = customerDetail?.phone || selectedConversation?.phone || "-";
 
-  const customerNotesText =
-    customerDetail?.notes ||
-    "";
+  const customerNotesText = customerDetail?.notes || "";
 
   const filteredCounts = useMemo(() => {
     return {
@@ -1457,7 +1531,10 @@ export default function App() {
               Logged in as {user?.username}
             </div>
             <div className="text-xs text-gray-400 mt-1">
-              Last sync: {lastSuccessfulSyncAt ? formatDateTime(lastSuccessfulSyncAt) : "No sync yet"}
+              Last sync:{" "}
+              {lastSuccessfulSyncAt
+                ? formatDateTime(lastSuccessfulSyncAt)
+                : "No sync yet"}
             </div>
           </div>
 
@@ -1562,9 +1639,13 @@ export default function App() {
 
             <div className="flex-1 overflow-y-auto">
               {loadingConversations ? (
-                <div className="p-4 text-sm text-gray-500">Loading conversations...</div>
+                <div className="p-4 text-sm text-gray-500">
+                  Loading conversations...
+                </div>
               ) : conversations.length === 0 ? (
-                <div className="p-4 text-sm text-gray-500">No conversations found.</div>
+                <div className="p-4 text-sm text-gray-500">
+                  No conversations found.
+                </div>
               ) : (
                 conversations.map((conv) => {
                   const active = sameId(selectedConversationId, conv.id);
@@ -1581,7 +1662,9 @@ export default function App() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <div className="font-semibold truncate">{getDisplayName(conv)}</div>
+                            <div className="font-semibold truncate">
+                              {getDisplayName(conv)}
+                            </div>
 
                             {Number(conv.unread_count || 0) > 0 && (
                               <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">
@@ -1596,7 +1679,9 @@ export default function App() {
                             )}
                           </div>
 
-                          <div className="text-sm text-gray-500 truncate">{conv.phone}</div>
+                          <div className="text-sm text-gray-500 truncate">
+                            {conv.phone}
+                          </div>
 
                           <div className="mt-1 text-sm truncate">
                             {conv.last_message_preview || "No messages yet"}
@@ -1615,7 +1700,8 @@ export default function App() {
 
                             {conv.assigned_to ? (
                               <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                                {conv.assigned_username || `User #${conv.assigned_to}`}
+                                {conv.assigned_username ||
+                                  `User #${conv.assigned_to}`}
                               </span>
                             ) : (
                               <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700">
@@ -1641,9 +1727,12 @@ export default function App() {
               <>
                 <div className="px-4 py-3 border-b bg-white flex items-center justify-between">
                   <div>
-                    <div className="font-semibold text-lg">{getDisplayName(selectedConversation)}</div>
+                    <div className="font-semibold text-lg">
+                      {getDisplayName(selectedConversation)}
+                    </div>
                     <div className="text-sm text-gray-500">
-                      {selectedConversation.phone} · Conversation ID: {selectedConversation.id}
+                      {selectedConversation.phone} · Conversation ID:{" "}
+                      {selectedConversation.id}
                     </div>
                   </div>
 
@@ -1716,7 +1805,9 @@ export default function App() {
                         return (
                           <div
                             key={msg.id}
-                            className={`flex ${isOutbound ? "justify-end" : "justify-start"}`}
+                            className={`flex ${
+                              isOutbound ? "justify-end" : "justify-start"
+                            }`}
                           >
                             <div
                               className={`max-w-[75%] rounded-2xl px-4 py-2 shadow-sm ${
@@ -1734,7 +1825,9 @@ export default function App() {
                               {msg.media_assets?.length > 0 ? (
                                 <div className="mt-2 space-y-2">
                                   {msg.media_assets.map((media) => {
-                                    const mediaUrl = media?.id ? mediaUrlMap[media.id] : null;
+                                    const mediaUrl = media?.id
+                                      ? mediaUrlMap[media.id]
+                                      : null;
                                     if (!mediaUrl) return null;
 
                                     const mediaType = getMediaKind(media);
@@ -1770,7 +1863,9 @@ export default function App() {
                                             target="_blank"
                                             rel="noreferrer"
                                             className={`text-sm underline break-all ${
-                                              isOutbound ? "text-blue-100" : "text-blue-600"
+                                              isOutbound
+                                                ? "text-blue-100"
+                                                : "text-blue-600"
                                             }`}
                                           >
                                             {fileName}
@@ -1788,8 +1883,31 @@ export default function App() {
                                 }`}
                               >
                                 {formatMessageTime(msg.created_at)}
-                                {msg.status ? ` · ${msg.status}` : ""}
+                                {msg.status ? (
+                                  <span className="ml-1">
+                                    ·{" "}
+                                    {msg.status === "failed" ? (
+                                      <span className="text-red-200">
+                                        {getStatusLabel(msg.status)}
+                                      </span>
+                                    ) : (
+                                      getStatusLabel(msg.status)
+                                    )}
+                                  </span>
+                                ) : null}
                               </div>
+
+                              {msg.status === "failed" && isOutbound ? (
+                                <div className="mt-2 text-xs">
+                                  <button
+                                    onClick={retryFailedMessage}
+                                    className="underline text-red-200 hover:text-white"
+                                    type="button"
+                                  >
+                                    Retry
+                                  </button>
+                                </div>
+                              ) : null}
                             </div>
                           </div>
                         );
@@ -1803,7 +1921,9 @@ export default function App() {
                   {selectedFile ? (
                     <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
                       <div className="min-w-0">
-                        <div className="text-sm font-medium truncate">{selectedFile.name}</div>
+                        <div className="text-sm font-medium truncate">
+                          {selectedFile.name}
+                        </div>
                         <div className="text-xs text-gray-500">
                           {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                         </div>
@@ -1826,7 +1946,9 @@ export default function App() {
                     <textarea
                       rows={3}
                       className="flex-1 border rounded px-3 py-2 text-sm"
-                      placeholder={selectedFile ? "Add a caption..." : "Type a reply..."}
+                      placeholder={
+                        selectedFile ? "Add a caption..." : "Type a reply..."
+                      }
                       value={replyText}
                       onChange={(e) => setReplyText(e.target.value)}
                     />
@@ -2011,9 +2133,13 @@ export default function App() {
                   </div>
 
                   {loadingNotes ? (
-                    <div className="text-sm text-gray-500">Loading handling log...</div>
+                    <div className="text-sm text-gray-500">
+                      Loading handling log...
+                    </div>
                   ) : notes.length === 0 ? (
-                    <div className="text-sm text-gray-500">No handling updates yet.</div>
+                    <div className="text-sm text-gray-500">
+                      No handling updates yet.
+                    </div>
                   ) : (
                     <div className="space-y-3 max-h-[380px] overflow-y-auto">
                       {notes
