@@ -145,6 +145,8 @@ export default function App() {
   const [selectedConversationId, setSelectedConversationId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [mediaUrlMap, setMediaUrlMap] = useState({});
+  const [previewImageUrl, setPreviewImageUrl] = useState("");
+  const [previewImageName, setPreviewImageName] = useState("");
 
   const [search, setSearch] = useState("");
   const [scope, setScope] = useState("all");
@@ -268,6 +270,13 @@ export default function App() {
     setLastInboundSignalAt(null);
     setWarningBanner("");
     setMediaUrlMap({});
+    setPreviewImageUrl("");
+    setPreviewImageName("");
+  }, []);
+
+  const closeImagePreview = useCallback(() => {
+    setPreviewImageUrl("");
+    setPreviewImageName("");
   }, []);
 
   const scrollMessagesToBottom = useCallback((smooth = true) => {
@@ -805,6 +814,19 @@ export default function App() {
   }, [messages, mediaUrlMap]);
 
   useEffect(() => {
+    if (!previewImageUrl) return;
+
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        closeImagePreview();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [previewImageUrl, closeImagePreview]);
+
+  useEffect(() => {
     if (!user) return;
 
     const heartbeat = setInterval(async () => {
@@ -1271,6 +1293,8 @@ export default function App() {
     setLastInboundSignalAt(null);
     setWarningBanner("");
     setMediaUrlMap({});
+    setPreviewImageUrl("");
+    setPreviewImageName("");
 
     if (socketRef.current) {
       socketRef.current.disconnect();
@@ -1640,7 +1664,11 @@ export default function App() {
                                           <img
                                             src={mediaUrl}
                                             alt={fileName}
-                                            className="max-w-[220px] rounded-lg cursor-pointer"
+                                            className="max-w-[220px] max-h-[260px] object-cover rounded-lg cursor-zoom-in hover:opacity-95 transition"
+                                            onClick={() => {
+                                              setPreviewImageUrl(mediaUrl);
+                                              setPreviewImageName(fileName);
+                                            }}
                                           />
                                         ) : mediaType === "video" ? (
                                           <video
@@ -1976,6 +2004,37 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {previewImageUrl ? (
+        <div
+          className="fixed inset-0 z-[100] bg-black/85 flex items-center justify-center p-4"
+          onClick={closeImagePreview}
+        >
+          <div
+            className="relative max-w-[96vw] max-h-[96vh] flex flex-col items-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={closeImagePreview}
+              className="absolute -top-12 right-0 text-white text-3xl leading-none hover:opacity-80"
+              aria-label="Close image preview"
+            >
+              ×
+            </button>
+
+            <img
+              src={previewImageUrl}
+              alt={previewImageName || "preview"}
+              className="max-w-[96vw] max-h-[88vh] object-contain rounded-lg shadow-2xl bg-white"
+            />
+
+            <div className="mt-3 text-white text-sm text-center break-all max-w-[90vw]">
+              {previewImageName || "Image preview"}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
