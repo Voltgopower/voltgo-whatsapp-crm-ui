@@ -231,7 +231,14 @@ export default function App() {
     return conversations.find((c) => sameId(c.id, selectedConversationId)) || null;
   }, [conversations, selectedConversationId]);
 
-  const selectedCustomerId = selectedConversation?.customer_id ?? null;
+  const selectedCustomerId = useMemo(() => {
+    return (
+      selectedConversation?.customer_id ||
+      customerDetail?.id ||
+      customerDetail?.customer_id ||
+      null
+    );
+  }, [selectedConversation, customerDetail]);
 
   const clearErrorSoon = useCallback(() => {
     setTimeout(() => {
@@ -728,7 +735,7 @@ export default function App() {
           handleUnauthorized();
           return;
         }
-        console.error("loadNotes error:", err);
+        console.error("loadNotes error:", err?.response?.data || err);
         setNotes([]);
       } finally {
         setLoadingNotes(false);
@@ -1252,25 +1259,55 @@ export default function App() {
   }
 
   async function addNote() {
-    if (!selectedCustomerId || !noteInput.trim() || savingNote) return;
+    const customerId = String(selectedCustomerId || "").trim();
+    const content = String(noteInput || "").trim();
+
+    if (!customerId || !content || savingNote) return;
 
     setSavingNote(true);
+
     try {
-      await axios.post(`${API_BASE}/customers/${selectedCustomerId}/notes`, {
-        content: noteInput.trim(),
-        created_by: "Bruce",
+      const res = await axios.post(`${API_BASE}/customers/${customerId}/notes`, {
+        content,
+        created_by: user?.username || "Bruce",
       });
+
+      const createdNote =
+        res.data?.note ||
+        res.data?.data ||
+        null;
 
       setNoteInput("");
       markSuccessfulSync();
-      await loadNotes(selectedCustomerId);
+
+      if (createdNote) {
+        setNotes((prev) => [
+          {
+            ...createdNote,
+            content: createdNote.content || createdNote.note || content,
+          },
+          ...prev,
+        ]);
+      }
+
+      await loadNotes(customerId);
     } catch (err) {
       if (err?.response?.status === 401) {
         handleUnauthorized();
         return;
       }
-      console.error("addNote error:", err);
-      setFriendlyError("Add handling log failed.");
+
+      console.error("addNote error:", {
+        customerId,
+        selectedConversationId,
+        selectedCustomerId,
+        response: err?.response?.data,
+        message: err?.message,
+      });
+
+      setFriendlyError(
+        err?.response?.data?.message || "Add handling log failed."
+      );
     } finally {
       setSavingNote(false);
     }
@@ -1284,6 +1321,8 @@ export default function App() {
 
     try {
       await axios.delete(`${API_BASE}/customers/notes/${noteId}`);
+
+      setNotes((prev) => prev.filter((n) => !sameId(n.id, noteId)));
       markSuccessfulSync();
       await loadNotes(selectedCustomerId);
     } catch (err) {
@@ -1291,8 +1330,11 @@ export default function App() {
         handleUnauthorized();
         return;
       }
-      console.error("deleteNote error:", err);
-      setFriendlyError("Delete note failed.");
+
+      console.error("deleteNote error:", err?.response?.data || err);
+      setFriendlyError(
+        err?.response?.data?.message || "Delete note failed."
+      );
     }
   }
 
@@ -2137,7 +2179,7 @@ export default function App() {
 
                     <button
                       onClick={addNote}
-                      disabled={savingNote}
+                      disabled={savingNote || !selectedCustomerId || !noteInput.trim()}
                       className="px-3 py-2 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
                       type="button"
                     >
