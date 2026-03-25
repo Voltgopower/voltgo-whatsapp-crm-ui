@@ -200,6 +200,7 @@ export default function App() {
   const messagesEndRef = useRef(null);
   const selectedConversationIdRef = useRef(null);
   const fileInputRef = useRef(null);
+  const lastMessagesLoadAtRef = useRef(0);
 
   const assignableUsers = [
     { id: 1, username: "admin", role: "admin", label: "admin (admin)" },
@@ -581,13 +582,17 @@ export default function App() {
   ]);
 
   const loadMessages = useCallback(
-    async (conversationId) => {
+    async (conversationId, options = {}) => {
+      const { silent = false } = options;
+
       if (!conversationId || !user) {
         setMessages([]);
         return;
       }
 
-      setLoadingMessages(true);
+      if (!silent) {
+        setLoadingMessages(true);
+      }
 
       try {
         const res = await tryRequest([
@@ -612,18 +617,25 @@ export default function App() {
 
         setMessages(normalized);
         markSuccessfulSync();
+        lastMessagesLoadAtRef.current = Date.now();
 
-        setTimeout(() => {
-          scrollMessagesToBottom(false);
-        }, 120);
+        if (!silent) {
+          setTimeout(() => {
+            scrollMessagesToBottom(false);
+          }, 120);
+        }
       } catch (err) {
         if (err?.response?.status === 401) return;
         console.error("loadMessages error:", err);
         setApiConnected(false);
         setApiStatus("disconnected");
-        setFriendlyError("Failed to load messages.");
+        if (!silent) {
+          setFriendlyError("Failed to load messages.");
+        }
       } finally {
-        setLoadingMessages(false);
+        if (!silent) {
+          setLoadingMessages(false);
+        }
       }
     },
     [user, tryRequest, scrollMessagesToBottom, setFriendlyError, markSuccessfulSync]
@@ -771,7 +783,7 @@ export default function App() {
         : ""
     );
 
-    loadMessages(selectedConversation.id);
+    loadMessages(selectedConversation.id, { silent: false });
     loadCustomerDetail(selectedConversation.customer_id);
     loadTags(selectedConversation.customer_id);
     loadNotes(selectedConversation.customer_id);
@@ -945,10 +957,6 @@ export default function App() {
       });
 
       markSuccessfulSync();
-
-      if (sameId(selectedConversationIdRef.current, incoming.id)) {
-        loadMessages(incoming.id);
-      }
     });
 
     socket.on("message:new", ({ conversationId, message }) => {
@@ -1007,21 +1015,18 @@ export default function App() {
     return () => {
       socket.disconnect();
     };
-  }, [user, loadConversations, loadMessages, scrollMessagesToBottom, markSuccessfulSync]);
+  }, [user, loadConversations, scrollMessagesToBottom, markSuccessfulSync]);
 
-  // polling fallback
+  // polling fallback - anti flicker version
   useEffect(() => {
     if (!user) return;
 
     const interval = setInterval(() => {
-      if (selectedConversationIdRef.current) {
-        loadMessages(selectedConversationIdRef.current);
-      }
       loadConversations();
-    }, 5000);
+    }, 20000);
 
     return () => clearInterval(interval);
-  }, [user, loadMessages, loadConversations]);
+  }, [user, loadConversations]);
 
   function handleSelectFile(e) {
     const file = e.target.files?.[0] || null;
@@ -1041,7 +1046,7 @@ export default function App() {
 
       setReplyText("");
       markSuccessfulSync();
-      await loadMessages(selectedConversation.id);
+      await loadMessages(selectedConversation.id, { silent: true });
       await loadConversations();
     } catch (err) {
       if (err?.response?.status === 401) {
@@ -1117,7 +1122,7 @@ export default function App() {
       }
 
       markSuccessfulSync();
-      await loadMessages(selectedConversation.id);
+      await loadMessages(selectedConversation.id, { silent: true });
       await loadConversations();
     } catch (err) {
       if (err?.response?.status === 401) {
@@ -1299,7 +1304,7 @@ export default function App() {
 
       markSuccessfulSync();
       await loadConversations();
-      await loadMessages(selectedConversation.id);
+      await loadMessages(selectedConversation.id, { silent: true });
     } catch (err) {
       if (err?.response?.status === 401) return;
       console.error("retryFailedMessage error:", err);
@@ -1324,7 +1329,7 @@ export default function App() {
 
       markSuccessfulSync();
       await loadConversations();
-      await loadMessages(selectedConversation.id);
+      await loadMessages(selectedConversation.id, { silent: true });
     } catch (err) {
       if (err?.response?.status === 401) return;
       console.error("dismissFailedMessage error:", err);
@@ -1349,7 +1354,7 @@ export default function App() {
 
       markSuccessfulSync();
       await loadConversations();
-      await loadMessages(selectedConversation.id);
+      await loadMessages(selectedConversation.id, { silent: true });
     } catch (err) {
       if (err?.response?.status === 401) return;
       console.error("deleteFailedMessage error:", err);
