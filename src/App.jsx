@@ -146,7 +146,6 @@ export default function App() {
   const [authReady, setAuthReady] = useState(false);
 
   const [apiConnected, setApiConnected] = useState(true);
-
   const [apiStatus, setApiStatus] = useState("unknown");
   const [socketStatus, setSocketStatus] = useState("unknown");
   const [lastSuccessfulSyncAt, setLastSuccessfulSyncAt] = useState(null);
@@ -200,7 +199,6 @@ export default function App() {
   const messagesEndRef = useRef(null);
   const selectedConversationIdRef = useRef(null);
   const fileInputRef = useRef(null);
-  const lastMessagesLoadAtRef = useRef(0);
 
   const assignableUsers = [
     { id: 1, username: "admin", role: "admin", label: "admin (admin)" },
@@ -473,113 +471,130 @@ export default function App() {
     }
   }
 
-  const loadConversations = useCallback(async () => {
-    if (!user) return;
+  const loadConversations = useCallback(
+    async (options = {}) => {
+      const { silent = false } = options;
 
-    setLoadingConversations(true);
+      if (!user) return;
 
-    try {
-      const backendStatus =
-        scope !== "all"
-          ? scope
-          : statusFilter !== "all"
-          ? statusFilter
-          : "all";
-
-      const res = await tryRequest([
-        () =>
-          axios.get(`${API_BASE}/conversations`, {
-            params: {
-              status: backendStatus,
-              search: search || undefined,
-            },
-          }),
-        () =>
-          axios.get(`${API_BASE}/conversations`, {
-            params: {
-              status: backendStatus,
-              q: search || undefined,
-            },
-          }),
-        () => axios.get(`${API_BASE}/conversations`),
-      ]);
-
-      const rows =
-        res.data?.conversations ??
-        res.data?.data ??
-        res.data?.rows ??
-        (Array.isArray(res.data) ? res.data : []);
-
-      let normalized = rows.map(normalizeConversation);
-
-      if (scope === "unassigned") {
-        normalized = normalized.filter((c) => !c.assigned_to);
-      } else if (scope === "failed") {
-        normalized = normalized.filter((c) => Number(c.failed_count) > 0);
-      } else if (scope === "mine" && user?.id) {
-        normalized = normalized.filter(
-          (c) => String(c.assigned_to || "") === String(user.id)
-        );
+      if (!silent) {
+        setLoadingConversations(true);
       }
 
-      if (statusFilter === "open") {
-        normalized = normalized.filter((c) => c.status === "open");
-      } else if (statusFilter === "unread") {
-        normalized = normalized.filter((c) => Number(c.unread_count) > 0);
-      } else if (statusFilter === "closed") {
-        normalized = normalized.filter((c) => c.status === "closed");
-      }
+      try {
+        const backendStatus =
+          scope !== "all"
+            ? scope
+            : statusFilter !== "all"
+            ? statusFilter
+            : "all";
 
-      if (search.trim()) {
-        const keyword = search.trim().toLowerCase();
-        normalized = normalized.filter((c) => {
-          return (
-            String(getDisplayName(c) || "").toLowerCase().includes(keyword) ||
-            String(c.phone || "").toLowerCase().includes(keyword) ||
-            String(c.last_message_preview || "").toLowerCase().includes(keyword)
+        const res = await tryRequest([
+          () =>
+            axios.get(`${API_BASE}/conversations`, {
+              params: {
+                status: backendStatus,
+                search: search || undefined,
+              },
+            }),
+          () =>
+            axios.get(`${API_BASE}/conversations`, {
+              params: {
+                status: backendStatus,
+                q: search || undefined,
+              },
+            }),
+          () => axios.get(`${API_BASE}/conversations`),
+        ]);
+
+        const rows =
+          res.data?.conversations ??
+          res.data?.data ??
+          res.data?.rows ??
+          (Array.isArray(res.data) ? res.data : []);
+
+        let normalized = rows.map(normalizeConversation);
+
+        if (scope === "unassigned") {
+          normalized = normalized.filter((c) => !c.assigned_to);
+        } else if (scope === "failed") {
+          normalized = normalized.filter((c) => Number(c.failed_count) > 0);
+        } else if (scope === "mine" && user?.id) {
+          normalized = normalized.filter(
+            (c) => String(c.assigned_to || "") === String(user.id)
           );
+        }
+
+        if (statusFilter === "open") {
+          normalized = normalized.filter((c) => c.status === "open");
+        } else if (statusFilter === "unread") {
+          normalized = normalized.filter((c) => Number(c.unread_count) > 0);
+        } else if (statusFilter === "closed") {
+          normalized = normalized.filter((c) => c.status === "closed");
+        }
+
+        if (search.trim()) {
+          const keyword = search.trim().toLowerCase();
+          normalized = normalized.filter((c) => {
+            return (
+              String(getDisplayName(c) || "").toLowerCase().includes(keyword) ||
+              String(c.phone || "").toLowerCase().includes(keyword) ||
+              String(c.last_message_preview || "").toLowerCase().includes(keyword)
+            );
+          });
+        }
+
+        normalized.sort((a, b) => {
+          const aTime = new Date(a.last_message_at || 0).getTime();
+          const bTime = new Date(b.last_message_at || 0).getTime();
+          return bTime - aTime;
         });
-      }
 
-      normalized.sort((a, b) => {
-        const aTime = new Date(a.last_message_at || 0).getTime();
-        const bTime = new Date(b.last_message_at || 0).getTime();
-        return bTime - aTime;
-      });
+        setConversations((prev) => {
+          const prevStr = JSON.stringify(prev);
+          const nextStr = JSON.stringify(normalized);
+          return prevStr === nextStr ? prev : normalized;
+        });
 
-      setConversations(normalized);
-      markSuccessfulSync();
+        markSuccessfulSync();
 
-      if (normalized.length === 0) {
-        setSelectedConversationId(null);
-      } else {
-        const currentId = selectedConversationIdRef.current;
-        const stillExists = normalized.find((c) => sameId(c.id, currentId));
-
-        if (stillExists) {
-          setSelectedConversationId(stillExists.id);
+        if (normalized.length === 0) {
+          setSelectedConversationId(null);
         } else {
-          setSelectedConversationId(normalized[0].id);
+          const currentId = selectedConversationIdRef.current;
+          const stillExists = normalized.find((c) => sameId(c.id, currentId));
+
+          if (stillExists) {
+            setSelectedConversationId(stillExists.id);
+          } else {
+            setSelectedConversationId(normalized[0].id);
+          }
+        }
+      } catch (err) {
+        if (err?.response?.status === 401) return;
+        console.error("loadConversations error:", err);
+        setApiConnected(false);
+        setApiStatus("disconnected");
+
+        if (!silent) {
+          setFriendlyError("Failed to load conversations.");
+        }
+      } finally {
+        if (!silent) {
+          setLoadingConversations(false);
         }
       }
-    } catch (err) {
-      if (err?.response?.status === 401) return;
-      console.error("loadConversations error:", err);
-      setApiConnected(false);
-      setApiStatus("disconnected");
-      setFriendlyError("Failed to load conversations.");
-    } finally {
-      setLoadingConversations(false);
-    }
-  }, [
-    user,
-    scope,
-    statusFilter,
-    search,
-    tryRequest,
-    setFriendlyError,
-    markSuccessfulSync,
-  ]);
+    },
+    [
+      user,
+      scope,
+      statusFilter,
+      search,
+      tryRequest,
+      setFriendlyError,
+      markSuccessfulSync,
+    ]
+  );
 
   const loadMessages = useCallback(
     async (conversationId, options = {}) => {
@@ -617,7 +632,6 @@ export default function App() {
 
         setMessages(normalized);
         markSuccessfulSync();
-        lastMessagesLoadAtRef.current = Date.now();
 
         if (!silent) {
           setTimeout(() => {
@@ -767,7 +781,7 @@ export default function App() {
     if (!user) return;
 
     const timer = setTimeout(() => {
-      loadConversations();
+      loadConversations({ silent: true });
     }, 250);
 
     return () => clearTimeout(timer);
@@ -880,7 +894,6 @@ export default function App() {
 
     const heartbeat = setInterval(async () => {
       try {
-        console.log("🔥 NEW HEARTBEAT USING /health");
         await axios.get(`${API_BASE}/health`);
         setApiStatus("connected");
         setApiConnected(true);
@@ -915,7 +928,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, [user, lastInboundSignalAt, setFriendlyWarning]);
 
-  // socket
   useEffect(() => {
     if (!user) return;
 
@@ -949,11 +961,9 @@ export default function App() {
           ? prev.map((c) => (sameId(c.id, incoming.id) ? { ...c, ...incoming } : c))
           : [incoming, ...prev];
 
-        return [...next].sort((a, b) => {
-          const aTime = new Date(a.last_message_at || 0).getTime();
-          const bTime = new Date(b.last_message_at || 0).getTime();
-          return bTime - aTime;
-        });
+        const prevStr = JSON.stringify(prev);
+        const nextStr = JSON.stringify(next);
+        return prevStr === nextStr ? prev : next;
       });
 
       markSuccessfulSync();
@@ -984,7 +994,7 @@ export default function App() {
         scrollMessagesToBottom();
       }
 
-      loadConversations();
+      loadConversations({ silent: true });
     });
 
     socket.on("message:status", ({ messageId, waMessageId, status }) => {
@@ -1000,7 +1010,7 @@ export default function App() {
       );
 
       markSuccessfulSync();
-      loadConversations();
+      loadConversations({ silent: true });
     });
 
     socket.on("message:deleted", ({ messageId, conversationId }) => {
@@ -1009,7 +1019,7 @@ export default function App() {
       }
 
       markSuccessfulSync();
-      loadConversations();
+      loadConversations({ silent: true });
     });
 
     return () => {
@@ -1017,12 +1027,11 @@ export default function App() {
     };
   }, [user, loadConversations, scrollMessagesToBottom, markSuccessfulSync]);
 
-  // polling fallback - anti flicker version
   useEffect(() => {
     if (!user) return;
 
     const interval = setInterval(() => {
-      loadConversations();
+      loadConversations({ silent: true });
     }, 20000);
 
     return () => clearInterval(interval);
@@ -1047,7 +1056,7 @@ export default function App() {
       setReplyText("");
       markSuccessfulSync();
       await loadMessages(selectedConversation.id, { silent: true });
-      await loadConversations();
+      await loadConversations({ silent: true });
     } catch (err) {
       if (err?.response?.status === 401) {
         handleUnauthorized();
@@ -1123,7 +1132,7 @@ export default function App() {
 
       markSuccessfulSync();
       await loadMessages(selectedConversation.id, { silent: true });
-      await loadConversations();
+      await loadConversations({ silent: true });
     } catch (err) {
       if (err?.response?.status === 401) {
         handleUnauthorized();
@@ -1303,7 +1312,7 @@ export default function App() {
       ]);
 
       markSuccessfulSync();
-      await loadConversations();
+      await loadConversations({ silent: true });
       await loadMessages(selectedConversation.id, { silent: true });
     } catch (err) {
       if (err?.response?.status === 401) return;
@@ -1328,7 +1337,7 @@ export default function App() {
       ]);
 
       markSuccessfulSync();
-      await loadConversations();
+      await loadConversations({ silent: true });
       await loadMessages(selectedConversation.id, { silent: true });
     } catch (err) {
       if (err?.response?.status === 401) return;
@@ -1353,7 +1362,7 @@ export default function App() {
       ]);
 
       markSuccessfulSync();
-      await loadConversations();
+      await loadConversations({ silent: true });
       await loadMessages(selectedConversation.id, { silent: true });
     } catch (err) {
       if (err?.response?.status === 401) return;
@@ -1478,7 +1487,6 @@ export default function App() {
     "Unknown";
 
   const customerPhone = customerDetail?.phone || selectedConversation?.phone || "-";
-
   const customerNotesText = customerDetail?.notes || "";
 
   const filteredCounts = useMemo(() => {
@@ -1545,7 +1553,7 @@ export default function App() {
 
           <div className="flex items-center gap-2">
             <button
-              onClick={loadConversations}
+              onClick={() => loadConversations()}
               className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
               type="button"
             >
