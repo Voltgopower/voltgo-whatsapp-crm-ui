@@ -62,6 +62,42 @@ function getStatusLabel(status) {
   return raw || "";
 }
 
+function isProbablyUrl(text = "") {
+  return /^https?:\/\/\S+$/i.test(String(text).trim());
+}
+
+function renderTextWithLinks(text = "") {
+  const raw = String(text || "");
+  const parts = raw.split(/(https?:\/\/[^\s]+)/gi);
+
+  return parts.map((part, index) => {
+    if (isProbablyUrl(part)) {
+      return (
+        <a
+          key={`${part}-${index}`}
+          href={part}
+          target="_blank"
+          rel="noreferrer"
+          className="underline break-all"
+        >
+          {part}
+        </a>
+      );
+    }
+
+    return <React.Fragment key={index}>{part}</React.Fragment>;
+  });
+}
+
+function getFileBadge(mediaType = "") {
+  const t = String(mediaType || "").toLowerCase();
+  if (t === "image") return "Image";
+  if (t === "video") return "Video";
+  if (t === "audio") return "Audio";
+  if (t === "document") return "Document";
+  return "File";
+}
+
 function LoginScreen({ onLoginSuccess }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -1850,12 +1886,21 @@ export default function App() {
                   ) : messages.length === 0 ? (
                     <div className="text-sm text-gray-500">No messages yet.</div>
                   ) : (
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                       {messages.map((msg) => {
                         const isOutbound =
                           msg.direction === "outbound" ||
                           msg.direction === "out" ||
                           msg.direction === "sent";
+
+                        const bubbleBase = isOutbound
+                          ? "bg-blue-600 text-white rounded-2xl rounded-br-md"
+                          : "bg-white text-gray-900 border border-gray-200 rounded-2xl rounded-bl-md";
+
+                        const timeColor = isOutbound ? "text-blue-100" : "text-gray-400";
+                        const subtleCard = isOutbound
+                          ? "bg-white/10 border border-white/20"
+                          : "bg-gray-50 border border-gray-200";
 
                         return (
                           <div
@@ -1864,105 +1909,161 @@ export default function App() {
                               isOutbound ? "justify-end" : "justify-start"
                             }`}
                           >
-                            <div
-                              className={`max-w-[75%] rounded-2xl px-4 py-2 shadow-sm ${
-                                isOutbound
-                                  ? "bg-blue-600 text-white"
-                                  : "bg-white text-gray-900 border"
-                              }`}
-                            >
-                              {msg.content ? (
-                                <div className="whitespace-pre-wrap break-words text-sm">
-                                  {msg.content}
-                                </div>
-                              ) : null}
-
-                              {msg.media_assets?.length > 0 ? (
-                                <div className="mt-2 space-y-2">
-                                  {msg.media_assets.map((media) => {
-                                    const mediaUrl = media?.id
-                                      ? mediaUrlMap[media.id]
-                                      : null;
-                                    if (!mediaUrl) return null;
-
-                                    const mediaType = getMediaKind(media);
-                                    const fileName = getMediaFileName(media);
-
-                                    return (
-                                      <div key={media.id || `${msg.id}-${fileName}`}>
-                                        {mediaType === "image" ? (
-                                          <img
-                                            src={mediaUrl}
-                                            alt={fileName}
-                                            className="max-w-[220px] max-h-[260px] object-cover rounded-lg cursor-zoom-in hover:opacity-95 transition"
-                                            onClick={() => {
-                                              setPreviewImageUrl(mediaUrl);
-                                              setPreviewImageName(fileName);
-                                            }}
-                                          />
-                                        ) : mediaType === "video" ? (
-                                          <video
-                                            src={mediaUrl}
-                                            controls
-                                            className="max-w-[220px] rounded-lg"
-                                          />
-                                        ) : mediaType === "audio" ? (
-                                          <audio
-                                            src={mediaUrl}
-                                            controls
-                                            className="max-w-[220px]"
-                                          />
-                                        ) : (
-                                          <a
-                                            href={mediaUrl}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className={`text-sm underline break-all ${
-                                              isOutbound
-                                                ? "text-blue-100"
-                                                : "text-blue-600"
-                                            }`}
-                                          >
-                                            {fileName}
-                                          </a>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              ) : null}
-
+                            <div className="max-w-[78%] min-w-0">
                               <div
-                                className={`mt-1 text-[11px] ${
-                                  isOutbound ? "text-blue-100" : "text-gray-400"
-                                }`}
+                                className={`${bubbleBase} px-4 py-3 shadow-sm overflow-hidden`}
                               >
-                                {formatMessageTime(msg.created_at)}
-                                {msg.status ? (
-                                  <span className="ml-1">
-                                    ·{" "}
-                                    {msg.status === "failed" ? (
-                                      <span className="text-red-200">
-                                        {getStatusLabel(msg.status)}
-                                      </span>
-                                    ) : (
-                                      getStatusLabel(msg.status)
-                                    )}
-                                  </span>
+                                {msg.content ? (
+                                  <div className="text-sm leading-6 whitespace-pre-wrap break-words break-all">
+                                    {renderTextWithLinks(msg.content)}
+                                  </div>
+                                ) : null}
+
+                                {msg.media_assets?.length > 0 ? (
+                                  <div className={`${msg.content ? "mt-3" : ""} space-y-3`}>
+                                    {msg.media_assets.map((media) => {
+                                      const mediaUrl = media?.id
+                                        ? mediaUrlMap[media.id]
+                                        : null;
+                                      if (!mediaUrl) return null;
+
+                                      const mediaType = getMediaKind(media);
+                                      const fileName = getMediaFileName(media);
+
+                                      if (mediaType === "image") {
+                                        return (
+                                          <div key={media.id || `${msg.id}-${fileName}`}>
+                                            <img
+                                              src={mediaUrl}
+                                              alt={fileName}
+                                              className="
+                                                w-full max-w-[320px] max-h-[360px]
+                                                object-cover rounded-2xl cursor-zoom-in
+                                                hover:opacity-95 transition
+                                              "
+                                              onClick={() => {
+                                                setPreviewImageUrl(mediaUrl);
+                                                setPreviewImageName(fileName);
+                                              }}
+                                            />
+                                            {fileName && fileName !== "attachment" ? (
+                                              <div className={`mt-2 text-xs ${timeColor} break-all`}>
+                                                {fileName}
+                                              </div>
+                                            ) : null}
+                                          </div>
+                                        );
+                                      }
+
+                                      if (mediaType === "video") {
+                                        return (
+                                          <div key={media.id || `${msg.id}-${fileName}`}>
+                                            <video
+                                              src={mediaUrl}
+                                              controls
+                                              className="w-full max-w-[320px] rounded-2xl"
+                                            />
+                                            <div className={`mt-2 text-xs ${timeColor} break-all`}>
+                                              {fileName}
+                                            </div>
+                                          </div>
+                                        );
+                                      }
+
+                                      if (mediaType === "audio") {
+                                        return (
+                                          <div
+                                            key={media.id || `${msg.id}-${fileName}`}
+                                            className={`rounded-2xl px-3 py-3 ${subtleCard}`}
+                                          >
+                                            <div className={`text-xs mb-2 ${timeColor}`}>
+                                              Audio
+                                            </div>
+                                            <audio
+                                              src={mediaUrl}
+                                              controls
+                                              className="w-full max-w-[320px]"
+                                            />
+                                            <div className={`mt-2 text-xs ${timeColor} break-all`}>
+                                              {fileName}
+                                            </div>
+                                          </div>
+                                        );
+                                      }
+
+                                      return (
+                                        <a
+                                          key={media.id || `${msg.id}-${fileName}`}
+                                          href={mediaUrl}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className={`
+                                            block rounded-2xl px-4 py-3 no-underline
+                                            ${subtleCard}
+                                            hover:opacity-95 transition
+                                          `}
+                                        >
+                                          <div className="flex items-start gap-3 min-w-0">
+                                            <div
+                                              className={`
+                                                h-10 w-10 rounded-xl flex items-center justify-center
+                                                ${isOutbound ? "bg-white/15" : "bg-white"}
+                                                shrink-0
+                                              `}
+                                            >
+                                              📄
+                                            </div>
+
+                                            <div className="min-w-0 flex-1">
+                                              <div className={`text-xs ${timeColor}`}>
+                                                {getFileBadge(mediaType)}
+                                              </div>
+                                              <div className="text-sm font-medium break-all mt-1">
+                                                {fileName}
+                                              </div>
+                                              {media.file_size ? (
+                                                <div className={`text-xs mt-1 ${timeColor}`}>
+                                                  {(Number(media.file_size) / 1024 / 1024).toFixed(2)} MB
+                                                </div>
+                                              ) : null}
+                                            </div>
+                                          </div>
+                                        </a>
+                                      );
+                                    })}
+                                  </div>
+                                ) : null}
+
+                                <div
+                                  className={`mt-3 flex items-center gap-1 text-[11px] ${timeColor}`}
+                                >
+                                  <span>{formatMessageTime(msg.created_at)}</span>
+                                  {msg.status ? (
+                                    <>
+                                      <span>·</span>
+                                      {msg.status === "failed" ? (
+                                        <span className="text-red-200 font-medium">
+                                          {getStatusLabel(msg.status)}
+                                        </span>
+                                      ) : (
+                                        <span>{getStatusLabel(msg.status)}</span>
+                                      )}
+                                    </>
+                                  ) : null}
+                                </div>
+
+                                {msg.status === "failed" && isOutbound ? (
+                                  <div className="mt-2">
+                                    <button
+                                      onClick={retryFailedMessage}
+                                      className="text-xs underline text-red-200 hover:text-white"
+                                      type="button"
+                                    >
+                                      Retry
+                                    </button>
+                                  </div>
                                 ) : null}
                               </div>
-
-                              {msg.status === "failed" && isOutbound ? (
-                                <div className="mt-2 text-xs">
-                                  <button
-                                    onClick={retryFailedMessage}
-                                    className="underline text-red-200 hover:text-white"
-                                    type="button"
-                                  >
-                                    Retry
-                                  </button>
-                                </div>
-                              ) : null}
                             </div>
                           </div>
                         );
