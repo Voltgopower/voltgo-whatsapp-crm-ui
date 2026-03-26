@@ -1088,46 +1088,41 @@ export default function App() {
   async function sendReply() {
     if (!selectedConversation?.id || !replyText.trim() || sending) return;
 
-    const tempId = "temp-" + Date.now();
-    const text = replyText;
-
+    const content = replyText.trim();
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const tempMessage = {
       id: tempId,
-      text,
-      status: "sending",
-      isLocal: true,
       conversation_id: selectedConversation.id,
+      direction: "outbound",
+      content,
       created_at: new Date().toISOString(),
+      status: "sending",
+      media_assets: [],
+      isLocalOnly: true,
     };
 
-    // ✅ optimistic UI
-    setMessages(prev => [...prev, tempMessage]);
+    setMessages((prev) => [...prev, tempMessage]);
     setReplyText("");
     setSending(true);
+    scrollMessagesToBottom();
 
     try {
-      const res = await axios.post(`${API_BASE}/messages/send`, {
+      await axios.post(`${API_BASE}/messages/send`, {
         conversationId: selectedConversation.id,
-        text,
+        text: content,
       });
 
-      // ✅ success → update message
-      setMessages(prev =>
-        prev.map(m =>
-          m.id === tempId
-            ? {
-                ...m,
-                status: "sent",
-                id: res.data?.id || m.id,
-                isLocal: false,
-              }
-            : m
+      setMessages((prev) =>
+        prev.map((msg) =>
+          sameId(msg.id, tempId)
+            ? { ...msg, status: "sent", isLocalOnly: false }
+            : msg
         )
       );
 
       markSuccessfulSync();
+      await loadMessages(selectedConversation.id, { silent: true });
       await loadConversations({ silent: true });
-
     } catch (err) {
       if (err?.response?.status === 401) {
         handleUnauthorized();
@@ -1136,33 +1131,27 @@ export default function App() {
 
       console.error("sendReply error:", err);
 
-      // ❗ mark failed instead of rollback
-      setMessages(prev =>
-        prev.map(m =>
-          m.id === tempId
-            ? { ...m, status: "failed" }
-            : m
+      setMessages((prev) =>
+        prev.map((msg) =>
+          sameId(msg.id, tempId)
+            ? {
+                ...msg,
+                status: "failed",
+                error_message:
+                  err?.response?.data?.message ||
+                  err?.response?.data?.error ||
+                  err?.message ||
+                  "Send failed",
+              }
+            : msg
         )
       );
 
       setFriendlyError(
         `Send failed: ${
-          err.response?.data?.message ||
-          err.response?.data?.error ||
-          err.message
-        }`
-      );
-    } finally {
-      setSending(false);
-    }
-  }
-
-      console.error("sendReply error:", err);
-      setFriendlyError(
-        `Send failed: ${
-          err.response?.data?.message ||
-          err.response?.data?.error ||
-          err.message
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message
         }`
       );
     } finally {
