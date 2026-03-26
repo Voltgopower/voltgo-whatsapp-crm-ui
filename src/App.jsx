@@ -1440,6 +1440,83 @@ export default function App() {
     }
   }
 
+  async function retrySingleFailedMessage(message) {
+    if (!selectedConversation?.id || !message) return;
+
+    const retryText = (message.content || message.text || "").trim();
+    if (!retryText) {
+      setFriendlyError("This failed message has no text to retry.");
+      return;
+    }
+
+    setMessages((prev) =>
+      prev.map((msg) =>
+        sameId(msg.id, message.id)
+          ? {
+              ...msg,
+              status: "sending",
+              error_message: "",
+            }
+          : msg
+      )
+    );
+
+    try {
+      await axios.post(`${API_BASE}/messages/send`, {
+        conversationId: selectedConversation.id,
+        text: retryText,
+      });
+
+      setMessages((prev) =>
+        prev.map((msg) =>
+          sameId(msg.id, message.id)
+            ? {
+                ...msg,
+                status: "sent",
+                isLocalOnly: false,
+                error_message: "",
+              }
+            : msg
+        )
+      );
+
+      markSuccessfulSync();
+      await loadMessages(selectedConversation.id, { silent: true });
+      await loadConversations({ silent: true });
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+
+      console.error("retrySingleFailedMessage error:", err);
+
+      setMessages((prev) =>
+        prev.map((msg) =>
+          sameId(msg.id, message.id)
+            ? {
+                ...msg,
+                status: "failed",
+                error_message:
+                  err?.response?.data?.message ||
+                  err?.response?.data?.error ||
+                  err?.message ||
+                  "Retry failed",
+              }
+            : msg
+        )
+      );
+
+      setFriendlyError(
+        `Retry failed: ${
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message
+        }`
+      );
+    }
+  }
+
   async function dismissFailedMessage() {
     if (!selectedConversation?.id) return;
 
@@ -2096,7 +2173,7 @@ export default function App() {
                                 {msg.status === "failed" && isOutbound ? (
                                   <div className="mt-2">
                                     <button
-                                      onClick={retryFailedMessage}
+                                      onClick={() => retrySingleFailedMessage(msg)}
                                       className="text-xs underline text-red-200 hover:text-white"
                                       type="button"
                                     >
