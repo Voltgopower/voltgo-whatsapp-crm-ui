@@ -8,9 +8,6 @@ const API_BASE =
 const SOCKET_BASE =
   import.meta.env.VITE_SOCKET_BASE || "http://localhost:3000";
 
-const DIRECT_MEDIA_MAX_BYTES = 20 * 1024 * 1024; // 20MB
-const LINK_ONLY_MAX_BYTES = 120 * 1024 * 1024; // 120MB
-
 console.log("API_BASE =", API_BASE);
 
 function sameId(a, b) {
@@ -99,6 +96,85 @@ function getFileBadge(mediaType = "") {
   if (t === "audio") return "Audio";
   if (t === "document") return "Document";
   return "File";
+}
+
+function getConversationWindowInfo(messages = [], conversation = null) {
+  const explicitExpiresAt =
+    conversation?.service_window_expires_at ||
+    conversation?.serviceWindowExpiresAt ||
+    conversation?.raw?.service_window_expires_at ||
+    conversation?.raw?.serviceWindowExpiresAt ||
+    null;
+
+  const now = Date.now();
+
+  if (explicitExpiresAt) {
+    const expiresAtMs = new Date(explicitExpiresAt).getTime();
+    return {
+      isOpen: Number.isFinite(expiresAtMs) ? expiresAtMs > now : true,
+      expiresAt: explicitExpiresAt,
+      lastCustomerMessageAt:
+        conversation?.last_customer_message_at ||
+        conversation?.raw?.last_customer_message_at ||
+        null,
+    };
+  }
+
+  const lastInbound = [...messages]
+    .filter((msg) => {
+      const direction = String(msg?.direction || "").toLowerCase();
+      return direction === "inbound" || direction === "received";
+    })
+    .sort(
+      (a, b) =>
+        new Date(b?.created_at || 0).getTime() -
+        new Date(a?.created_at || 0).getTime()
+    )[0];
+
+  if (!lastInbound?.created_at) {
+    return { isOpen: true, expiresAt: null, lastCustomerMessageAt: null };
+  }
+
+  const lastInboundMs = new Date(lastInbound.created_at).getTime();
+  const expiresAtMs = lastInboundMs + 24 * 60 * 60 * 1000;
+
+  return {
+    isOpen: expiresAtMs > now,
+    expiresAt: new Date(expiresAtMs).toISOString(),
+    lastCustomerMessageAt: lastInbound.created_at,
+  };
+}
+
+function formatRemainingWindow(expiresAt) {
+  if (!expiresAt) return "";
+  const diff = new Date(expiresAt).getTime() - Date.now();
+  if (!Number.isFinite(diff) || diff <= 0) return "expired";
+
+  const totalMinutes = Math.floor(diff / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours <= 0) return `${minutes}m left`;
+  return `${hours}h ${minutes}m left`;
+}
+
+function getDefaultTemplateParamValue(
+  key,
+  { customerDisplayName, selectedConversation } = {}
+) {
+  const normalized = String(key || "").trim();
+
+  if (normalized === "customer_name") {
+    return customerDisplayName && customerDisplayName !== "Unknown"
+      ? customerDisplayName
+      : "";
+  }
+
+  if (normalized === "phone") {
+    return selectedConversation?.phone || "";
+  }
+
+  return "";
 }
 
 function LoginScreen({ onLoginSuccess }) {
@@ -233,6 +309,13 @@ export default function App() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [changePasswordError, setChangePasswordError] = useState("");
   const [changePasswordSuccess, setChangePasswordSuccess] = useState("");
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [templates, setTemplates] = useState([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [templatesError, setTemplatesError] = useState("");
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [templateParams, setTemplateParams] = useState({});
+  const [sendingTemplate, setSendingTemplate] = useState(false);
 
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -278,6 +361,12 @@ export default function App() {
       null
     );
   }, [selectedConversation, customerDetail]);
+
+  const conversationWindow = useMemo(() => {
+    return getConversationWindowInfo(messages, selectedConversation);
+  }, [messages, selectedConversation]);
+
+  const isWindowExpired = !conversationWindow.isOpen;
 
   const clearErrorSoon = useCallback(() => {
     setTimeout(() => {
@@ -441,8 +530,6 @@ export default function App() {
       status = "failed";
     }
 
-    const rawPayload = row.raw_payload ?? row.rawPayload ?? null;
-
     return {
       id: row.id,
       conversation_id: row.conversation_id ?? row.conversationId ?? null,
@@ -466,9 +553,6 @@ export default function App() {
       whatsapp_message_id:
         row.whatsapp_message_id ?? row.whatsappMessageId ?? null,
       media_assets: Array.isArray(row.media_assets) ? row.media_assets : [],
-      transport: rawPayload?._transport || row.transport || null,
-      fallback_reason: rawPayload?._fallback_reason || null,
-      raw_payload: rawPayload,
       raw: row,
     };
   }
@@ -1090,32 +1174,16 @@ export default function App() {
 
   function handleSelectFile(e) {
     const file = e.target.files?.[0] || null;
-    if (!file) return;
-
-    if (file.size > LINK_ONLY_MAX_BYTES) {
-      setSelectedFile(null);
-
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-
-      setFriendlyWarning(
-        "File is over 120MB. Please use a share link instead of direct upload."
-      );
-      return;
-    }
-
-    if (file.size > DIRECT_MEDIA_MAX_BYTES) {
-      setFriendlyWarning(
-        "Large file detected. It will be uploaded and sent as a link."
-      );
-    }
-
     setSelectedFile(file);
   }
 
   async function sendReply() {
     if (!selectedConversation?.id || !replyText.trim() || sending) return;
+
+    if (isWindowExpired) {
+      setFriendlyWarning("Free-form reply expired. Please send an approved template.");
+      return;
+    }
 
     setSending(true);
 
@@ -1157,12 +1225,8 @@ export default function App() {
       return;
     }
 
-    const fileSize = Number(selectedFile.size || 0);
-
-    if (fileSize > LINK_ONLY_MAX_BYTES) {
-      setFriendlyWarning(
-        "File is over 120MB. Please use a share link instead of direct upload."
-      );
+    if (isWindowExpired) {
+      setFriendlyWarning("Free-form reply expired. Please send an approved template.");
       return;
     }
 
@@ -1437,147 +1501,6 @@ export default function App() {
     }
   }
 
-  async function retrySingleFailedMessage(message) {
-    if (!selectedConversation?.id || !message) return;
-
-    const retryText = (message.content || message.text || "").trim();
-    if (!retryText) {
-      setFriendlyError("This failed message has no text to retry.");
-      return;
-    }
-
-    setMessages((prev) =>
-      prev.map((msg) =>
-        sameId(msg.id, message.id)
-          ? {
-              ...msg,
-              status: "sending",
-              error_message: "",
-            }
-          : msg
-      )
-    );
-
-    try {
-      await axios.post(`${API_BASE}/messages/send`, {
-        conversationId: selectedConversation.id,
-        text: retryText,
-      });
-
-      markSuccessfulSync();
-      await loadMessages(selectedConversation.id, { silent: true });
-      await loadConversations({ silent: true });
-    } catch (err) {
-      if (err?.response?.status === 401) {
-        handleUnauthorized();
-        return;
-      }
-
-      console.error("retrySingleFailedMessage error:", err);
-
-      setMessages((prev) =>
-        prev.map((msg) =>
-          sameId(msg.id, message.id)
-            ? {
-                ...msg,
-                status: "failed",
-                error_message:
-                  err?.response?.data?.message ||
-                  err?.response?.data?.error ||
-                  err?.message ||
-                  "Retry failed",
-              }
-            : msg
-        )
-      );
-
-      setFriendlyError(
-        `Retry failed: ${
-          err?.response?.data?.message ||
-          err?.response?.data?.error ||
-          err?.message
-        }`
-      );
-    }
-  }
-
-  async function retrySingleFailedMediaMessage(message) {
-    if (!selectedConversation?.id || !selectedCustomerId || !message) return;
-
-    const media = Array.isArray(message.media_assets) ? message.media_assets[0] : null;
-
-    if (!media?.id) {
-      setFriendlyError("This failed media message has no media asset to retry.");
-      return;
-    }
-
-    setMessages((prev) =>
-      prev.map((msg) =>
-        sameId(msg.id, message.id)
-          ? {
-              ...msg,
-              status: "sending",
-              error_message: "",
-            }
-          : msg
-      )
-    );
-
-    try {
-      const caption =
-        typeof message.content === "string" &&
-        /^\[(image|video|audio|document) message\]$/i.test(message.content.trim())
-          ? ""
-          : String(message.content || "").trim();
-
-      const res = await axios.post(`${API_BASE}/messages/send-media`, {
-        conversationId: selectedConversation.id,
-        customerId: selectedCustomerId,
-        mediaId: media.id,
-        caption,
-      });
-
-      if (!res.data?.success) {
-        throw new Error(res.data?.message || "Retry media failed");
-      }
-
-      markSuccessfulSync();
-      await loadMessages(selectedConversation.id, { silent: true });
-      await loadConversations({ silent: true });
-    } catch (err) {
-      if (err?.response?.status === 401) {
-        handleUnauthorized();
-        return;
-      }
-
-      console.error("retrySingleFailedMediaMessage error:", err);
-
-      setMessages((prev) =>
-        prev.map((msg) =>
-          sameId(msg.id, message.id)
-            ? {
-                ...msg,
-                status: "failed",
-                error_message:
-                  err?.response?.data?.message ||
-                  err?.response?.data?.error ||
-                  err?.message ||
-                  "Retry media failed",
-              }
-            : msg
-        )
-      );
-
-      setFriendlyError(
-        `Retry media failed: ${
-          err?.response?.data?.message ||
-          err?.response?.data?.error ||
-          err?.message
-        }`
-      );
-    }
-  }
-
   async function dismissFailedMessage() {
     if (!selectedConversation?.id) return;
 
@@ -1745,6 +1668,113 @@ export default function App() {
 
   const customerPhone = customerDetail?.phone || selectedConversation?.phone || "-";
   const customerNotesText = customerDetail?.notes || "";
+
+  useEffect(() => {
+    if (!showTemplatePicker) return;
+
+    const loadTemplates = async () => {
+      setLoadingTemplates(true);
+      setTemplatesError("");
+
+      try {
+        const res = await axios.get(`${API_BASE}/templates`);
+        const rows = Array.isArray(res.data?.data)
+          ? res.data.data
+          : Array.isArray(res.data?.templates)
+          ? res.data.templates
+          : [];
+
+        setTemplates(rows);
+      } catch (err) {
+        if (err?.response?.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+
+        console.error("loadTemplates error:", err);
+        setTemplatesError(
+          err?.response?.data?.message || err?.message || "Failed to load templates."
+        );
+      } finally {
+        setLoadingTemplates(false);
+      }
+    };
+
+    loadTemplates();
+  }, [showTemplatePicker, handleUnauthorized]);
+
+  function openTemplatePicker() {
+    setShowTemplatePicker(true);
+    setTemplatesError("");
+  }
+
+  function closeTemplatePicker() {
+    if (sendingTemplate) return;
+    setShowTemplatePicker(false);
+    setSelectedTemplate(null);
+    setTemplateParams({});
+    setTemplatesError("");
+  }
+
+  function selectTemplate(template) {
+    setSelectedTemplate(template);
+
+    const defaults = {};
+    const schema = Array.isArray(template?.params_schema) ? template.params_schema : [];
+
+    for (const field of schema) {
+      defaults[field.key] = getDefaultTemplateParamValue(field.key, {
+        customerDisplayName,
+        selectedConversation,
+      });
+    }
+
+    setTemplateParams(defaults);
+  }
+
+  function updateTemplateParam(key, value) {
+    setTemplateParams((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  }
+
+  async function sendTemplateMessage() {
+    if (!selectedConversation?.id || !selectedTemplate || sendingTemplate) return;
+
+    setSendingTemplate(true);
+
+    try {
+      const res = await axios.post(`${API_BASE}/messages/send-template`, {
+        conversationId: selectedConversation.id,
+        templateName: selectedTemplate.template_name,
+        languageCode: selectedTemplate.language || "en_US",
+        params: templateParams,
+      });
+
+      if (!res.data?.success) {
+        throw new Error(res.data?.message || "Send template failed");
+      }
+
+      closeTemplatePicker();
+      markSuccessfulSync();
+      setFriendlyWarning("Template sent. Waiting for customer reply to reopen the 24h window.");
+      await loadMessages(selectedConversation.id, { silent: true });
+      await loadConversations({ silent: true });
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+
+      console.error("sendTemplateMessage error:", err);
+      setTemplatesError(
+        err?.response?.data?.message || err?.message || "Failed to send template."
+      );
+    } finally {
+      setSendingTemplate(false);
+    }
+  }
 
   const filteredCounts = useMemo(() => {
     return {
@@ -2080,16 +2110,6 @@ export default function App() {
                         const subtleCard = isOutbound
                           ? "bg-white/10 border border-white/20"
                           : "bg-gray-50 border border-gray-200";
-                        const isOutboundLinkFallback =
-                          isOutbound && msg.transport === "r2_link";
-                        const isPlaceholderContent =
-                          typeof msg.content === "string" &&
-                          /^\[(image|video|audio|document) message\]$/i.test(
-                            msg.content.trim()
-                          );
-                        const shouldRenderContent = !(
-                          isOutboundLinkFallback && isPlaceholderContent
-                        );
 
                         return (
                           <div
@@ -2102,15 +2122,7 @@ export default function App() {
                               <div
                                 className={`${bubbleBase} px-4 py-3 shadow-sm overflow-hidden`}
                               >
-                                {isOutboundLinkFallback ? (
-                                  <div className="mb-2">
-                                    <span className="inline-flex items-center rounded-full bg-white/15 px-2 py-1 text-[11px] text-white">
-                                      🔗 Sent as link
-                                    </span>
-                                  </div>
-                                ) : null}
-
-                                {msg.content && shouldRenderContent ? (
+                                {msg.content ? (
                                   <div className="text-sm leading-6 whitespace-pre-wrap break-words break-all">
                                     {renderTextWithLinks(msg.content)}
                                   </div>
@@ -2126,51 +2138,6 @@ export default function App() {
 
                                       const mediaType = getMediaKind(media);
                                       const fileName = getMediaFileName(media);
-
-                                      if (isOutboundLinkFallback) {
-                                        return (
-                                          <a
-                                            key={media.id || `${msg.id}-${fileName}`}
-                                            href={msg.raw_payload?._media_url || mediaUrl}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className={`
-                                              block rounded-2xl px-4 py-3 no-underline
-                                              ${subtleCard}
-                                              hover:opacity-95 transition
-                                            `}
-                                          >
-                                            <div className="flex items-start gap-3 min-w-0">
-                                              <div
-                                                className={`
-                                                  h-10 w-10 rounded-xl flex items-center justify-center
-                                                  ${isOutbound ? "bg-white/15" : "bg-white"}
-                                                  shrink-0
-                                                `}
-                                              >
-                                                🔗
-                                              </div>
-
-                                              <div className="min-w-0 flex-1">
-                                                <div className={`text-xs ${timeColor}`}>
-                                                  Link delivery
-                                                </div>
-                                                <div className="text-sm font-medium break-all mt-1">
-                                                  {fileName}
-                                                </div>
-                                                {media.file_size ? (
-                                                  <div className={`text-xs mt-1 ${timeColor}`}>
-                                                    {(Number(media.file_size) / 1024 / 1024).toFixed(2)} MB
-                                                  </div>
-                                                ) : null}
-                                                <div className={`text-xs mt-2 ${timeColor} underline`}>
-                                                  Open link
-                                                </div>
-                                              </div>
-                                            </div>
-                                          </a>
-                                        );
-                                      }
 
                                       if (mediaType === "image") {
                                         return (
@@ -2297,16 +2264,7 @@ export default function App() {
                                 {msg.status === "failed" && isOutbound ? (
                                   <div className="mt-2">
                                     <button
-                                      onClick={() => {
-                                        if (
-                                          Array.isArray(msg.media_assets) &&
-                                          msg.media_assets.length > 0
-                                        ) {
-                                          retrySingleFailedMediaMessage(msg);
-                                        } else {
-                                          retrySingleFailedMessage(msg);
-                                        }
-                                      }}
+                                      onClick={retryFailedMessage}
                                       className="text-xs underline text-red-200 hover:text-white"
                                       type="button"
                                     >
@@ -2325,31 +2283,60 @@ export default function App() {
                 </div>
 
                 <div className="p-4 border-t bg-white space-y-3">
+                  <div
+                    className={`rounded-lg border px-3 py-2 text-sm ${
+                      isWindowExpired
+                        ? "bg-amber-50 border-amber-200 text-amber-800"
+                        : "bg-green-50 border-green-200 text-green-700"
+                    }`}
+                  >
+                    {isWindowExpired ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-medium">24h window expired</div>
+                          <div className="text-xs mt-1">
+                            Free-form reply is disabled. Please send an approved template.
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={openTemplatePicker}
+                          className="shrink-0 rounded bg-amber-600 px-3 py-2 text-xs font-medium text-white hover:bg-amber-700"
+                        >
+                          Choose Template
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-medium">24h window active</div>
+                          <div className="text-xs mt-1">
+                            {conversationWindow.expiresAt
+                              ? `Free-form reply available · ${formatRemainingWindow(
+                                  conversationWindow.expiresAt
+                                )}`
+                              : "Free-form reply available"}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={openTemplatePicker}
+                          className="shrink-0 rounded border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                        >
+                          Choose Template
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   {selectedFile ? (
                     <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <div className="text-sm font-medium truncate">
-                            {selectedFile.name}
-                          </div>
-                          {selectedFile.size > DIRECT_MEDIA_MAX_BYTES ? (
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700">
-                              Link fallback
-                            </span>
-                          ) : (
-                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] text-green-700">
-                              Normal media
-                            </span>
-                          )}
+                        <div className="text-sm font-medium truncate">
+                          {selectedFile.name}
                         </div>
                         <div className="text-xs text-gray-500">
                           {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                         </div>
-                        {selectedFile.size > DIRECT_MEDIA_MAX_BYTES ? (
-                          <div className="mt-1 text-xs text-amber-700">
-                            Large file: system will send it as a link.
-                          </div>
-                        ) : null}
                       </div>
 
                       <button
@@ -2374,6 +2361,7 @@ export default function App() {
                       }
                       value={replyText}
                       onChange={(e) => setReplyText(e.target.value)}
+                      disabled={isWindowExpired}
                     />
 
                     <div className="flex flex-col gap-2">
@@ -2388,7 +2376,8 @@ export default function App() {
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="px-4 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
+                        disabled={isWindowExpired}
+                        className="px-4 py-2 rounded border bg-white hover:bg-gray-50 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Upload
                       </button>
@@ -2396,8 +2385,8 @@ export default function App() {
                       {selectedFile ? (
                         <button
                           onClick={sendMediaMessage}
-                          disabled={sendingMedia}
-                          className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"
+                          disabled={sendingMedia || isWindowExpired}
+                          className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                           type="button"
                         >
                           {sendingMedia ? "Sending..." : "Send File"}
@@ -2405,8 +2394,8 @@ export default function App() {
                       ) : (
                         <button
                           onClick={sendReply}
-                          disabled={sending}
-                          className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"
+                          disabled={sending || isWindowExpired}
+                          className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                           type="button"
                         >
                           {sending ? "Sending..." : "Send"}
@@ -2619,6 +2608,154 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {showTemplatePicker && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4">
+          <div className="w-full max-w-3xl rounded-2xl bg-white shadow-xl">
+            <div className="border-b px-6 py-4 flex items-center justify-between">
+              <div>
+                <div className="text-lg font-semibold">Choose Template</div>
+                <div className="text-sm text-gray-500 mt-1">
+                  Send an approved template to reopen the conversation.
+                </div>
+              </div>
+              <button
+                onClick={closeTemplatePicker}
+                disabled={sendingTemplate}
+                className="text-sm text-gray-500 hover:text-gray-700 disabled:opacity-50"
+                type="button"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-[280px,1fr] min-h-[420px]">
+              <div className="border-r p-4 space-y-3 overflow-y-auto">
+                {loadingTemplates ? (
+                  <div className="text-sm text-gray-500">Loading templates...</div>
+                ) : templatesError ? (
+                  <div className="text-sm text-red-600">{templatesError}</div>
+                ) : templates.length === 0 ? (
+                  <div className="text-sm text-gray-500">No templates available.</div>
+                ) : (
+                  templates.map((template) => {
+                    const active = sameId(selectedTemplate?.id, template.id);
+                    return (
+                      <button
+                        key={template.id}
+                        type="button"
+                        onClick={() => selectTemplate(template)}
+                        className={`w-full rounded-xl border px-3 py-3 text-left ${
+                          active
+                            ? "border-blue-500 bg-blue-50"
+                            : "border-gray-200 bg-white hover:bg-gray-50"
+                        }`}
+                      >
+                        <div className="text-sm font-semibold">{template.display_name}</div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          {template.category} · {template.language}
+                        </div>
+                        {template.description ? (
+                          <div className="text-xs text-gray-600 mt-2 line-clamp-3">
+                            {template.description}
+                          </div>
+                        ) : null}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="p-6 space-y-4">
+                {selectedTemplate ? (
+                  <>
+                    <div>
+                      <div className="text-lg font-semibold">
+                        {selectedTemplate.display_name}
+                      </div>
+                      <div className="text-sm text-gray-500 mt-1">
+                        {selectedTemplate.template_name} · {selectedTemplate.language}
+                      </div>
+                      {selectedTemplate.description ? (
+                        <div className="text-sm text-gray-600 mt-3">
+                          {selectedTemplate.description}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {Array.isArray(selectedTemplate.params_schema) &&
+                    selectedTemplate.params_schema.length > 0 ? (
+                      <div className="space-y-3">
+                        <div className="text-sm font-medium">Template parameters</div>
+                        {selectedTemplate.params_schema.map((field) => (
+                          <div key={field.key}>
+                            <label className="block text-xs text-gray-500 mb-1">
+                              {field.label || field.key}
+                              {field.required ? " *" : ""}
+                            </label>
+                            <input
+                              type="text"
+                              className="w-full border rounded px-3 py-2 text-sm"
+                              value={templateParams[field.key] || ""}
+                              onChange={(e) =>
+                                updateTemplateParam(field.key, e.target.value)
+                              }
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-gray-500">
+                        This template has no parameters.
+                      </div>
+                    )}
+
+                    <div className="rounded-xl border bg-gray-50 p-4">
+                      <div className="text-xs font-medium text-gray-500 mb-2">
+                        Preview
+                      </div>
+                      <div className="text-sm whitespace-pre-wrap text-gray-800">
+                        {String(selectedTemplate.body_text || "").replace(
+                          /\{\{(.*?)\}\}/g,
+                          (_, key) => templateParams[String(key).trim()] || `{{${key}}}`
+                        )}
+                      </div>
+                    </div>
+
+                    {templatesError ? (
+                      <div className="text-sm text-red-600">{templatesError}</div>
+                    ) : null}
+
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={closeTemplatePicker}
+                        disabled={sendingTemplate}
+                        className="px-4 py-2 rounded border bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
+                        type="button"
+                      >
+                        Cancel
+                      </button>
+
+                      <button
+                        onClick={sendTemplateMessage}
+                        disabled={sendingTemplate}
+                        className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"
+                        type="button"
+                      >
+                        {sendingTemplate ? "Sending..." : "Send Template"}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                    Select a template to continue.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showChangePassword && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4">
