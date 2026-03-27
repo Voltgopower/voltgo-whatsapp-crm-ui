@@ -2610,9 +2610,9 @@ export default function App() {
       </div>
 
       {showTemplatePicker && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4">
-          <div className="w-full max-w-3xl rounded-2xl bg-white shadow-xl">
-            <div className="border-b px-6 py-4 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-xl flex flex-col">
+            <div className="border-b px-6 py-4 flex items-center justify-between shrink-0">
               <div>
                 <div className="text-lg font-semibold">Choose Template</div>
                 <div className="text-sm text-gray-500 mt-1">
@@ -2629,8 +2629,8 @@ export default function App() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-[280px,1fr] min-h-[420px]">
-              <div className="border-r p-4 space-y-3 overflow-y-auto">
+            <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[320px,1fr]">
+              <div className="border-r p-4 space-y-3 overflow-y-auto min-h-0">
                 {loadingTemplates ? (
                   <div className="text-sm text-gray-500">Loading templates...</div>
                 ) : templatesError ? (
@@ -2645,9 +2645,9 @@ export default function App() {
                         key={template.id}
                         type="button"
                         onClick={() => selectTemplate(template)}
-                        className={`w-full rounded-xl border px-3 py-3 text-left ${
+                        className={`w-full rounded-xl border px-4 py-4 text-left transition ${
                           active
-                            ? "border-blue-500 bg-blue-50"
+                            ? "border-blue-500 bg-blue-50 shadow-sm"
                             : "border-gray-200 bg-white hover:bg-gray-50"
                         }`}
                       >
@@ -2666,91 +2666,94 @@ export default function App() {
                 )}
               </div>
 
-              <div className="p-6 space-y-4">
-                {selectedTemplate ? (
-                  <>
-                    <div>
-                      <div className="text-lg font-semibold">
-                        {selectedTemplate.display_name}
-                      </div>
-                      <div className="text-sm text-gray-500 mt-1">
-                        {selectedTemplate.template_name} · {selectedTemplate.language}
-                      </div>
-                      {selectedTemplate.description ? (
-                        <div className="text-sm text-gray-600 mt-3">
-                          {selectedTemplate.description}
+              <div className="flex flex-col min-h-0">
+                <div className="flex-1 overflow-y-auto min-h-0 p-6">
+                  {selectedTemplate ? (
+                    <div className="space-y-5">
+                      <div>
+                        <div className="text-lg font-semibold">
+                          {selectedTemplate.display_name}
                         </div>
+                        <div className="text-sm text-gray-500 mt-1">
+                          {selectedTemplate.template_name} · {selectedTemplate.language}
+                        </div>
+                        {selectedTemplate.description ? (
+                          <div className="text-sm text-gray-600 mt-3">
+                            {selectedTemplate.description}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {Array.isArray(selectedTemplate.params_schema) &&
+                      selectedTemplate.params_schema.length > 0 ? (
+                        <div className="space-y-3">
+                          <div className="text-sm font-medium">Template parameters</div>
+                          {selectedTemplate.params_schema.map((field) => (
+                            <div key={field.key}>
+                              <label className="block text-xs text-gray-500 mb-1">
+                                {field.label || field.key}
+                                {field.required ? " *" : ""}
+                              </label>
+                              <input
+                                type="text"
+                                className="w-full border rounded px-3 py-2 text-sm"
+                                value={templateParams[field.key] || ""}
+                                onChange={(e) =>
+                                  updateTemplateParam(field.key, e.target.value)
+                                }
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-gray-500">
+                          This template has no parameters.
+                        </div>
+                      )}
+
+                      <div className="rounded-xl border bg-gray-50 p-4">
+                        <div className="text-xs font-medium text-gray-500 mb-2">
+                          Preview
+                        </div>
+                        <div className="text-sm whitespace-pre-wrap text-gray-800 break-words">
+                          {String(selectedTemplate.body_text || "").replace(
+                            /\{\{(.*?)\}\}/g,
+                            (_, key) =>
+                              templateParams[String(key).trim()] || `{{${key}}}`
+                          )}
+                        </div>
+                      </div>
+
+                      {templatesError ? (
+                        <div className="text-sm text-red-600">{templatesError}</div>
                       ) : null}
                     </div>
-
-                    {Array.isArray(selectedTemplate.params_schema) &&
-                    selectedTemplate.params_schema.length > 0 ? (
-                      <div className="space-y-3">
-                        <div className="text-sm font-medium">Template parameters</div>
-                        {selectedTemplate.params_schema.map((field) => (
-                          <div key={field.key}>
-                            <label className="block text-xs text-gray-500 mb-1">
-                              {field.label || field.key}
-                              {field.required ? " *" : ""}
-                            </label>
-                            <input
-                              type="text"
-                              className="w-full border rounded px-3 py-2 text-sm"
-                              value={templateParams[field.key] || ""}
-                              onChange={(e) =>
-                                updateTemplateParam(field.key, e.target.value)
-                              }
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-sm text-gray-500">
-                        This template has no parameters.
-                      </div>
-                    )}
-
-                    <div className="rounded-xl border bg-gray-50 p-4">
-                      <div className="text-xs font-medium text-gray-500 mb-2">
-                        Preview
-                      </div>
-                      <div className="text-sm whitespace-pre-wrap text-gray-800">
-                        {String(selectedTemplate.body_text || "").replace(
-                          /\{\{(.*?)\}\}/g,
-                          (_, key) => templateParams[String(key).trim()] || `{{${key}}}`
-                        )}
-                      </div>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-gray-400 text-sm">
+                      Select a template to continue.
                     </div>
+                  )}
+                </div>
 
-                    {templatesError ? (
-                      <div className="text-sm text-red-600">{templatesError}</div>
-                    ) : null}
+                <div className="border-t px-6 py-4 flex justify-end gap-2 bg-white shrink-0">
+                  <button
+                    onClick={closeTemplatePicker}
+                    disabled={sendingTemplate}
+                    className="px-4 py-2 rounded border bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
+                    type="button"
+                  >
+                    Cancel
+                  </button>
 
-                    <div className="flex justify-end gap-2">
-                      <button
-                        onClick={closeTemplatePicker}
-                        disabled={sendingTemplate}
-                        className="px-4 py-2 rounded border bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
-                        type="button"
-                      >
-                        Cancel
-                      </button>
-
-                      <button
-                        onClick={sendTemplateMessage}
-                        disabled={sendingTemplate}
-                        className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50"
-                        type="button"
-                      >
-                        {sendingTemplate ? "Sending..." : "Send Template"}
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="h-full flex items-center justify-center text-sm text-gray-500">
-                    Select a template to continue.
-                  </div>
-                )}
+                  <button
+                    onClick={sendTemplateMessage}
+                    disabled={!selectedTemplate || sendingTemplate}
+                    className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    type="button"
+                  >
+                    {sendingTemplate ? "Sending..." : "Send Template"}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
