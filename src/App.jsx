@@ -302,18 +302,17 @@ function getConversationPreviewText(row = {}) {
   );
 
   if (isOutbound && isLargeFileFallback(row)) {
-    return `Large file sent as link: ${getFallbackFileName(row)}`;
-  }
-
-  return (
-    row.last_message_preview ??
-    row.lastMessagePreview ??
-    row.preview ??
-    getMessageText(row) ||
-    ""
-  );
+  return `Large file sent as link: ${getFallbackFileName(row)}`;
 }
 
+const previewText =
+  row.last_message_preview ??
+  row.lastMessagePreview ??
+  row.preview ??
+  (getMessageText(row) || "");
+
+return previewText;
+}
 function OutboundFallbackCard({ msg, mediaUrlMap = {}, timeColor = "text-blue-100" }) {
   const link = getFallbackLink(msg, mediaUrlMap);
   const fileName = getFallbackFileName(msg);
