@@ -8,9 +8,6 @@ const API_BASE =
 const SOCKET_BASE =
   import.meta.env.VITE_SOCKET_BASE || "http://localhost:3000";
 
-const DIRECT_MEDIA_MAX_BYTES = 20 * 1024 * 1024; // 20MB
-const LINK_ONLY_MAX_BYTES = 120 * 1024 * 1024; // 120MB
-
 console.log("API_BASE =", API_BASE);
 
 function sameId(a, b) {
@@ -441,6 +438,8 @@ export default function App() {
       status = "failed";
     }
 
+    const rawPayload = row.raw_payload ?? row.rawPayload ?? null;
+
     return {
       id: row.id,
       conversation_id: row.conversation_id ?? row.conversationId ?? null,
@@ -464,6 +463,9 @@ export default function App() {
       whatsapp_message_id:
         row.whatsapp_message_id ?? row.whatsappMessageId ?? null,
       media_assets: Array.isArray(row.media_assets) ? row.media_assets : [],
+      transport: rawPayload?._transport || row.transport || null,
+      fallback_reason: rawPayload?._fallback_reason || null,
+      raw_payload: rawPayload,
       raw: row,
     };
   }
@@ -1085,27 +1087,6 @@ export default function App() {
 
   function handleSelectFile(e) {
     const file = e.target.files?.[0] || null;
-    if (!file) return;
-
-    if (file.size > LINK_ONLY_MAX_BYTES) {
-      setSelectedFile(null);
-
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-
-      setFriendlyWarning(
-        "File is over 120MB. Please use a share link instead of direct upload."
-      );
-      return;
-    }
-
-    if (file.size > DIRECT_MEDIA_MAX_BYTES) {
-      setFriendlyWarning(
-        "Large file detected. It will be uploaded and may be sent as a link fallback."
-      );
-    }
-
     setSelectedFile(file);
   }
 
@@ -1152,16 +1133,6 @@ export default function App() {
       return;
     }
 
-    const fileSize = Number(selectedFile.size || 0);
-    const isLargeFile = fileSize > DIRECT_MEDIA_MAX_BYTES;
-
-    if (fileSize > LINK_ONLY_MAX_BYTES) {
-      setFriendlyWarning(
-        "File is over 120MB. Please use a share link instead of direct upload."
-      );
-      return;
-    }
-
     setSendingMedia(true);
 
     try {
@@ -1205,10 +1176,6 @@ export default function App() {
 
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
-      }
-
-      if (isLargeFile) {
-        setFriendlyWarning("Large file processed. If direct media delivery fails, the system may send it as a link.");
       }
 
       markSuccessfulSync();
@@ -1434,6 +1401,147 @@ export default function App() {
       if (err?.response?.status === 401) return;
       console.error("retryFailedMessage error:", err);
       setFriendlyError("Retry failed.");
+    }
+  }
+
+  async function retrySingleFailedMessage(message) {
+    if (!selectedConversation?.id || !message) return;
+
+    const retryText = (message.content || message.text || "").trim();
+    if (!retryText) {
+      setFriendlyError("This failed message has no text to retry.");
+      return;
+    }
+
+    setMessages((prev) =>
+      prev.map((msg) =>
+        sameId(msg.id, message.id)
+          ? {
+              ...msg,
+              status: "sending",
+              error_message: "",
+            }
+          : msg
+      )
+    );
+
+    try {
+      await axios.post(`${API_BASE}/messages/send`, {
+        conversationId: selectedConversation.id,
+        text: retryText,
+      });
+
+      markSuccessfulSync();
+      await loadMessages(selectedConversation.id, { silent: true });
+      await loadConversations({ silent: true });
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+
+      console.error("retrySingleFailedMessage error:", err);
+
+      setMessages((prev) =>
+        prev.map((msg) =>
+          sameId(msg.id, message.id)
+            ? {
+                ...msg,
+                status: "failed",
+                error_message:
+                  err?.response?.data?.message ||
+                  err?.response?.data?.error ||
+                  err?.message ||
+                  "Retry failed",
+              }
+            : msg
+        )
+      );
+
+      setFriendlyError(
+        `Retry failed: ${
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message
+        }`
+      );
+    }
+  }
+
+  async function retrySingleFailedMediaMessage(message) {
+    if (!selectedConversation?.id || !selectedCustomerId || !message) return;
+
+    const media = Array.isArray(message.media_assets) ? message.media_assets[0] : null;
+
+    if (!media?.id) {
+      setFriendlyError("This failed media message has no media asset to retry.");
+      return;
+    }
+
+    setMessages((prev) =>
+      prev.map((msg) =>
+        sameId(msg.id, message.id)
+          ? {
+              ...msg,
+              status: "sending",
+              error_message: "",
+            }
+          : msg
+      )
+    );
+
+    try {
+      const caption =
+        typeof message.content === "string" &&
+        /^\[(image|video|audio|document) message\]$/i.test(message.content.trim())
+          ? ""
+          : String(message.content || "").trim();
+
+      const res = await axios.post(`${API_BASE}/messages/send-media`, {
+        conversationId: selectedConversation.id,
+        customerId: selectedCustomerId,
+        mediaId: media.id,
+        caption,
+      });
+
+      if (!res.data?.success) {
+        throw new Error(res.data?.message || "Retry media failed");
+      }
+
+      markSuccessfulSync();
+      await loadMessages(selectedConversation.id, { silent: true });
+      await loadConversations({ silent: true });
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+
+      console.error("retrySingleFailedMediaMessage error:", err);
+
+      setMessages((prev) =>
+        prev.map((msg) =>
+          sameId(msg.id, message.id)
+            ? {
+                ...msg,
+                status: "failed",
+                error_message:
+                  err?.response?.data?.message ||
+                  err?.response?.data?.error ||
+                  err?.message ||
+                  "Retry media failed",
+              }
+            : msg
+        )
+      );
+
+      setFriendlyError(
+        `Retry media failed: ${
+          err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          err?.message
+        }`
+      );
     }
   }
 
@@ -1939,6 +2047,15 @@ export default function App() {
                         const subtleCard = isOutbound
                           ? "bg-white/10 border border-white/20"
                           : "bg-gray-50 border border-gray-200";
+                        const isLinkFallback = msg.transport === "r2_link";
+                        const isPlaceholderContent =
+                          typeof msg.content === "string" &&
+                          /^\[(image|video|audio|document) message\]$/i.test(
+                            msg.content.trim()
+                          );
+                        const shouldRenderContent = !(
+                          isLinkFallback && isPlaceholderContent
+                        );
 
                         return (
                           <div
@@ -1951,7 +2068,21 @@ export default function App() {
                               <div
                                 className={`${bubbleBase} px-4 py-3 shadow-sm overflow-hidden`}
                               >
-                                {msg.content ? (
+                                {isLinkFallback ? (
+                                  <div className="mb-2">
+                                    <span
+                                      className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] ${
+                                        isOutbound
+                                          ? "bg-white/15 text-white"
+                                          : "bg-amber-100 text-amber-700"
+                                      }`}
+                                    >
+                                      🔗 Sent as link
+                                    </span>
+                                  </div>
+                                ) : null}
+
+                                {msg.content && shouldRenderContent ? (
                                   <div className="text-sm leading-6 whitespace-pre-wrap break-words break-all">
                                     {renderTextWithLinks(msg.content)}
                                   </div>
@@ -2093,7 +2224,16 @@ export default function App() {
                                 {msg.status === "failed" && isOutbound ? (
                                   <div className="mt-2">
                                     <button
-                                      onClick={retryFailedMessage}
+                                      onClick={() => {
+                                        if (
+                                          Array.isArray(msg.media_assets) &&
+                                          msg.media_assets.length > 0
+                                        ) {
+                                          retrySingleFailedMediaMessage(msg);
+                                        } else {
+                                          retrySingleFailedMessage(msg);
+                                        }
+                                      }}
                                       className="text-xs underline text-red-200 hover:text-white"
                                       type="button"
                                     >
@@ -2113,59 +2253,26 @@ export default function App() {
 
                 <div className="p-4 border-t bg-white space-y-3">
                   {selectedFile ? (
-                    <div className="rounded-lg border bg-gray-50 px-3 py-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium truncate">
-                            {selectedFile.name}
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
-                          </div>
-                          {selectedFile.size > LINK_ONLY_MAX_BYTES ? (
-                            <div className="mt-1 text-xs text-red-700">
-                              Too large for direct upload. Please use a share link.
-                            </div>
-                          ) : selectedFile.size > DIRECT_MEDIA_MAX_BYTES ? (
-                            <div className="mt-1 text-xs text-amber-700">
-                              Large file: system may send it as a link fallback.
-                            </div>
-                          ) : (
-                            <div className="mt-1 text-xs text-green-700">
-                              Standard file: will try normal WhatsApp media send.
-                            </div>
-                          )}
+                    <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium truncate">
+                          {selectedFile.name}
                         </div>
-
-                        <div className="ml-3 flex items-center gap-2">
-                          <span
-                            className={`text-[11px] px-2 py-1 rounded-full ${
-                              selectedFile.size > LINK_ONLY_MAX_BYTES
-                                ? "bg-red-100 text-red-700"
-                                : selectedFile.size > DIRECT_MEDIA_MAX_BYTES
-                                ? "bg-amber-100 text-amber-700"
-                                : "bg-green-100 text-green-700"
-                            }`}
-                          >
-                            {selectedFile.size > LINK_ONLY_MAX_BYTES
-                              ? "Use link"
-                              : selectedFile.size > DIRECT_MEDIA_MAX_BYTES
-                              ? "Link fallback"
-                              : "Normal media"}
-                          </span>
-
-                          <button
-                            type="button"
-                            className="text-sm text-red-600 hover:text-red-700"
-                            onClick={() => {
-                              setSelectedFile(null);
-                              if (fileInputRef.current) fileInputRef.current.value = "";
-                            }}
-                          >
-                            Remove
-                          </button>
+                        <div className="text-xs text-gray-500">
+                          {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                         </div>
                       </div>
+
+                      <button
+                        type="button"
+                        className="ml-3 text-sm text-red-600 hover:text-red-700"
+                        onClick={() => {
+                          setSelectedFile(null);
+                          if (fileInputRef.current) fileInputRef.current.value = "";
+                        }}
+                      >
+                        Remove
+                      </button>
                     </div>
                   ) : null}
 
