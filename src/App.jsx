@@ -137,6 +137,7 @@ function isOutboundDirection(value = "") {
 
 function getFallbackFileName(row = {}) {
   const meta = getMessageMeta(row);
+  const rawPayload = row.raw_payload || row.raw?.raw_payload || {};
 
   return (
     row.file_name ||
@@ -147,6 +148,7 @@ function getFallbackFileName(row = {}) {
     meta.filename ||
     meta.media_name ||
     meta.document_name ||
+    rawPayload._file_name ||
     (Array.isArray(row.media_assets) && row.media_assets.length > 0
       ? getMediaFileName(row.media_assets[0])
       : null) ||
@@ -159,7 +161,16 @@ function getFallbackFileName(row = {}) {
 
 function isLargeFileFallback(row = {}) {
   const meta = getMessageMeta(row);
+  const rawPayload = row.raw_payload || row.raw?.raw_payload || {};
   const text = String(getMessageText(row) || "").toLowerCase();
+
+  if (
+    rawPayload?._transport === "r2_link" ||
+    rawPayload?._fallback_reason ||
+    rawPayload?._media_url
+  ) {
+    return true;
+  }
 
   const explicitFlags = [
     row.is_fallback,
@@ -183,10 +194,14 @@ function isLargeFileFallback(row = {}) {
     row.delivery_mode,
     row.send_mode,
     row.message_subtype,
+    row.transport,
     meta.fallback_type,
     meta.delivery_mode,
     meta.send_mode,
     meta.message_subtype,
+    meta.transport,
+    rawPayload._transport,
+    rawPayload._fallback_reason,
   ]
     .filter(Boolean)
     .map((value) => String(value).toLowerCase());
@@ -204,6 +219,10 @@ function isLargeFileFallback(row = {}) {
         "sent-as-link",
         "large_file_fallback",
         "large-file-fallback",
+        "r2_link",
+        "r2-link",
+        "force_link_over_20mb",
+        "force-link-over-20mb",
       ].includes(value)
     )
   ) {
@@ -227,6 +246,7 @@ function isLargeFileFallback(row = {}) {
 
 function getFallbackLink(row = {}, mediaUrlMap = {}) {
   const meta = getMessageMeta(row);
+  const rawPayload = row.raw_payload || row.raw?.raw_payload || {};
 
   const direct =
     row.fallback_url ||
@@ -240,7 +260,8 @@ function getFallbackLink(row = {}, mediaUrlMap = {}) {
     meta.file_url ||
     meta.link_url ||
     meta.public_url ||
-    meta.media_url;
+    meta.media_url ||
+    rawPayload._media_url;
 
   if (direct) return direct;
 
@@ -302,17 +323,18 @@ function getConversationPreviewText(row = {}) {
   );
 
   if (isOutbound && isLargeFileFallback(row)) {
-  return `Large file sent as link: ${getFallbackFileName(row)}`;
+    return `Large file sent as link: ${getFallbackFileName(row)}`;
+  }
+
+  const previewText =
+    row.last_message_preview ??
+    row.lastMessagePreview ??
+    row.preview ??
+    (getMessageText(row) || "");
+
+  return previewText;
 }
 
-const previewText =
-  row.last_message_preview ??
-  row.lastMessagePreview ??
-  row.preview ??
-  (getMessageText(row) || "");
-
-return previewText;
-}
 function OutboundFallbackCard({ msg, mediaUrlMap = {}, timeColor = "text-blue-100" }) {
   const link = getFallbackLink(msg, mediaUrlMap);
   const fileName = getFallbackFileName(msg);
@@ -787,6 +809,7 @@ export default function App() {
 
     let status = row.status ?? "sent";
     const createdAtMs = new Date(createdAt).getTime();
+    const rawPayload = row.raw_payload ?? row.rawPayload ?? {};
 
     if (
       status === "sending" &&
@@ -813,6 +836,7 @@ export default function App() {
         row.filename ??
         row.media_name ??
         row.document_name ??
+        rawPayload._file_name ??
         null,
       fallback_url:
         row.fallback_url ??
@@ -821,12 +845,14 @@ export default function App() {
         row.link_url ??
         row.public_url ??
         row.media_url ??
+        rawPayload._media_url ??
         null,
       is_large_file_fallback: isLargeFileFallback(row),
       wa_message_id: row.wa_message_id ?? row.waMessageId ?? null,
       whatsapp_message_id:
         row.whatsapp_message_id ?? row.whatsappMessageId ?? null,
       media_assets: Array.isArray(row.media_assets) ? row.media_assets : [],
+      raw_payload: rawPayload,
       raw: row,
     };
   }
