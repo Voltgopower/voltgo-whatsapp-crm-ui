@@ -8,6 +8,9 @@ const API_BASE =
 const SOCKET_BASE =
   import.meta.env.VITE_SOCKET_BASE || "http://localhost:3000";
 
+const DIRECT_MEDIA_MAX_BYTES = 20 * 1024 * 1024; // 20MB
+const LINK_ONLY_MAX_BYTES = 120 * 1024 * 1024; // 120MB
+
 console.log("API_BASE =", API_BASE);
 
 function sameId(a, b) {
@@ -1087,6 +1090,27 @@ export default function App() {
 
   function handleSelectFile(e) {
     const file = e.target.files?.[0] || null;
+    if (!file) return;
+
+    if (file.size > LINK_ONLY_MAX_BYTES) {
+      setSelectedFile(null);
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+
+      setFriendlyWarning(
+        "File is over 120MB. Please use a share link instead of direct upload."
+      );
+      return;
+    }
+
+    if (file.size > DIRECT_MEDIA_MAX_BYTES) {
+      setFriendlyWarning(
+        "Large file detected. It will be uploaded and sent as a link."
+      );
+    }
+
     setSelectedFile(file);
   }
 
@@ -1130,6 +1154,15 @@ export default function App() {
       !selectedFile ||
       sendingMedia
     ) {
+      return;
+    }
+
+    const fileSize = Number(selectedFile.size || 0);
+
+    if (fileSize > LINK_ONLY_MAX_BYTES) {
+      setFriendlyWarning(
+        "File is over 120MB. Please use a share link instead of direct upload."
+      );
       return;
     }
 
@@ -2047,14 +2080,15 @@ export default function App() {
                         const subtleCard = isOutbound
                           ? "bg-white/10 border border-white/20"
                           : "bg-gray-50 border border-gray-200";
-                        const isLinkFallback = msg.transport === "r2_link";
+                        const isOutboundLinkFallback =
+                          isOutbound && msg.transport === "r2_link";
                         const isPlaceholderContent =
                           typeof msg.content === "string" &&
                           /^\[(image|video|audio|document) message\]$/i.test(
                             msg.content.trim()
                           );
                         const shouldRenderContent = !(
-                          isLinkFallback && isPlaceholderContent
+                          isOutboundLinkFallback && isPlaceholderContent
                         );
 
                         return (
@@ -2068,15 +2102,9 @@ export default function App() {
                               <div
                                 className={`${bubbleBase} px-4 py-3 shadow-sm overflow-hidden`}
                               >
-                                {isLinkFallback ? (
+                                {isOutboundLinkFallback ? (
                                   <div className="mb-2">
-                                    <span
-                                      className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] ${
-                                        isOutbound
-                                          ? "bg-white/15 text-white"
-                                          : "bg-amber-100 text-amber-700"
-                                      }`}
-                                    >
+                                    <span className="inline-flex items-center rounded-full bg-white/15 px-2 py-1 text-[11px] text-white">
                                       🔗 Sent as link
                                     </span>
                                   </div>
@@ -2098,6 +2126,51 @@ export default function App() {
 
                                       const mediaType = getMediaKind(media);
                                       const fileName = getMediaFileName(media);
+
+                                      if (isOutboundLinkFallback) {
+                                        return (
+                                          <a
+                                            key={media.id || `${msg.id}-${fileName}`}
+                                            href={msg.raw_payload?._media_url || mediaUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className={`
+                                              block rounded-2xl px-4 py-3 no-underline
+                                              ${subtleCard}
+                                              hover:opacity-95 transition
+                                            `}
+                                          >
+                                            <div className="flex items-start gap-3 min-w-0">
+                                              <div
+                                                className={`
+                                                  h-10 w-10 rounded-xl flex items-center justify-center
+                                                  ${isOutbound ? "bg-white/15" : "bg-white"}
+                                                  shrink-0
+                                                `}
+                                              >
+                                                🔗
+                                              </div>
+
+                                              <div className="min-w-0 flex-1">
+                                                <div className={`text-xs ${timeColor}`}>
+                                                  Link delivery
+                                                </div>
+                                                <div className="text-sm font-medium break-all mt-1">
+                                                  {fileName}
+                                                </div>
+                                                {media.file_size ? (
+                                                  <div className={`text-xs mt-1 ${timeColor}`}>
+                                                    {(Number(media.file_size) / 1024 / 1024).toFixed(2)} MB
+                                                  </div>
+                                                ) : null}
+                                                <div className={`text-xs mt-2 ${timeColor} underline`}>
+                                                  Open link
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </a>
+                                        );
+                                      }
 
                                       if (mediaType === "image") {
                                         return (
@@ -2255,12 +2328,28 @@ export default function App() {
                   {selectedFile ? (
                     <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
                       <div className="min-w-0">
-                        <div className="text-sm font-medium truncate">
-                          {selectedFile.name}
+                        <div className="flex items-center gap-2">
+                          <div className="text-sm font-medium truncate">
+                            {selectedFile.name}
+                          </div>
+                          {selectedFile.size > DIRECT_MEDIA_MAX_BYTES ? (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700">
+                              Link fallback
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] text-green-700">
+                              Normal media
+                            </span>
+                          )}
                         </div>
                         <div className="text-xs text-gray-500">
                           {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                         </div>
+                        {selectedFile.size > DIRECT_MEDIA_MAX_BYTES ? (
+                          <div className="mt-1 text-xs text-amber-700">
+                            Large file: system will send it as a link.
+                          </div>
+                        ) : null}
                       </div>
 
                       <button
