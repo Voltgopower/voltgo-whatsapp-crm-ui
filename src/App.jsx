@@ -2398,7 +2398,8 @@ export default function App() {
                     <div className="space-y-4">
                       {messages.map((msg) => {
                         const isOutbound = isOutboundDirection(msg.direction);
-                        const isFallback = isOutbound && isLargeFileFallback(msg);
+                        const isFallback =
+  isOutbound && (msg.is_large_file_fallback || isLargeFileFallback(msg));
 
                         const bubbleBase = isOutbound
                           ? "bg-blue-600 text-white rounded-2xl rounded-br-md"
