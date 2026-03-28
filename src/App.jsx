@@ -554,6 +554,9 @@ export default function App() {
   const [replyText, setReplyText] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
   const [sendingMedia, setSendingMedia] = useState(false);
+  const [mediaSendStage, setMediaSendStage] = useState("idle");
+  const [predictedFallback, setPredictedFallback] = useState(false);
+  const [retryingMessageId, setRetryingMessageId] = useState(null);
   const [assignInput, setAssignInput] = useState("");
   const [newTag, setNewTag] = useState("");
   const [noteInput, setNoteInput] = useState("");
@@ -641,6 +644,20 @@ export default function App() {
 
   const isWindowExpired = !conversationWindow.isOpen;
 
+  const latestFailedMessage = useMemo(() => {
+    return (
+      [...messages]
+        .filter(
+          (m) => isOutboundDirection(m.direction) && String(m.status || "").toLowerCase() === "failed"
+        )
+        .sort(
+          (a, b) =>
+            new Date(b.created_at || 0).getTime() -
+            new Date(a.created_at || 0).getTime()
+        )[0] || null
+    );
+  }, [messages]);
+
   const clearErrorSoon = useCallback(() => {
     setTimeout(() => {
       setErrorBanner("");
@@ -695,6 +712,12 @@ export default function App() {
     setPreviewImageUrl("");
     setPreviewImageName("");
     setSelectedFile(null);
+    setPredictedFallback(false);
+    setMediaSendStage("idle");
+    setRetryingMessageId(null);
+    setPredictedFallback(false);
+    setMediaSendStage("idle");
+    setRetryingMessageId(null);
   }, []);
 
   const closeImagePreview = useCallback(() => {
@@ -1472,9 +1495,16 @@ export default function App() {
     return () => clearInterval(interval);
   }, [user, loadConversations]);
 
+  function willUseLinkFallback(file) {
+    if (!file) return false;
+    return Number(file.size || 0) > 20 * 1024 * 1024;
+  }
+
   function handleSelectFile(e) {
     const file = e.target.files?.[0] || null;
     setSelectedFile(file);
+    setMediaSendStage("idle");
+    setPredictedFallback(willUseLinkFallback(file));
   }
 
   async function sendReply() {
@@ -1531,6 +1561,7 @@ export default function App() {
     }
 
     setSendingMedia(true);
+    setMediaSendStage("uploading");
 
     try {
       const token = localStorage.getItem("token");
@@ -1556,6 +1587,7 @@ export default function App() {
       }
 
       const mediaId = uploadData.data.id;
+      setMediaSendStage("sending");
 
       const sendRes = await axios.post(`${API_BASE}/messages/send-media`, {
         conversationId: selectedConversation.id,
@@ -1570,6 +1602,8 @@ export default function App() {
 
       setSelectedFile(null);
       setReplyText("");
+      setPredictedFallback(false);
+      setMediaSendStage("idle");
 
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -1590,6 +1624,7 @@ export default function App() {
       );
     } finally {
       setSendingMedia(false);
+      setMediaSendStage("idle");
     }
   }
 
@@ -1776,19 +1811,26 @@ export default function App() {
     }
   }
 
-  async function retryFailedMessage() {
+  async function retryFailedMessage(failedMsg = null) {
     if (!selectedConversation?.id) return;
+
+    const targetMessageId = failedMsg?.id || null;
+    setRetryingMessageId(targetMessageId || "__conversation__");
 
     try {
       await tryRequest([
         () =>
-          axios.post(
-            `${API_BASE}/conversations/${selectedConversation.id}/retry-failed`
-          ),
-        () =>
           axios.post(`${API_BASE}/failed-messages/retry`, {
             conversationId: selectedConversation.id,
+            messageId: targetMessageId,
           }),
+        () =>
+          axios.post(
+            `${API_BASE}/conversations/${selectedConversation.id}/retry-failed`,
+            {
+              messageId: targetMessageId,
+            }
+          ),
       ]);
 
       markSuccessfulSync();
@@ -1797,7 +1839,9 @@ export default function App() {
     } catch (err) {
       if (err?.response?.status === 401) return;
       console.error("retryFailedMessage error:", err);
-      setFriendlyError("Retry failed.");
+      setFriendlyError(err?.response?.data?.message || "Retry failed.");
+    } finally {
+      setRetryingMessageId(null);
     }
   }
 
@@ -2364,11 +2408,12 @@ export default function App() {
                     )}
 
                     <button
-                      onClick={retryFailedMessage}
-                      className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
+                      onClick={() => retryFailedMessage(latestFailedMessage)}
+                      disabled={!latestFailedMessage || Boolean(retryingMessageId)}
+                      className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
                       type="button"
                     >
-                      Retry Failed
+                      {retryingMessageId ? "Retrying..." : "Retry Failed"}
                     </button>
 
                     <button
@@ -2580,11 +2625,12 @@ export default function App() {
                                 {msg.status === "failed" && isOutbound ? (
                                   <div className="mt-2">
                                     <button
-                                      onClick={retryFailedMessage}
-                                      className="text-xs underline text-red-200 hover:text-white"
+                                      onClick={() => retryFailedMessage(msg)}
+                                      disabled={retryingMessageId === msg.id}
+                                      className="text-xs underline text-red-200 hover:text-white disabled:opacity-60"
                                       type="button"
                                     >
-                                      Retry
+                                      {retryingMessageId === msg.id ? "Retrying..." : "Retry"}
                                     </button>
                                   </div>
                                 ) : null}
@@ -2660,11 +2706,31 @@ export default function App() {
                         className="ml-3 text-sm text-red-600 hover:text-red-700"
                         onClick={() => {
                           setSelectedFile(null);
+                          setPredictedFallback(false);
+                          setMediaSendStage("idle");
                           if (fileInputRef.current) fileInputRef.current.value = "";
                         }}
                       >
                         Remove
                       </button>
+                    </div>
+                  ) : null}
+
+                  {selectedFile && predictedFallback ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      This file is large and will likely be sent as a link instead of native WhatsApp media.
+                    </div>
+                  ) : null}
+
+                  {selectedFile && sendingMedia && mediaSendStage === "uploading" ? (
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                      Uploading file...
+                    </div>
+                  ) : null}
+
+                  {selectedFile && sendingMedia && mediaSendStage === "sending" ? (
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                      Sending message...
                     </div>
                   ) : null}
 
@@ -2705,7 +2771,11 @@ export default function App() {
                           className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                           type="button"
                         >
-                          {sendingMedia ? "Sending..." : "Send File"}
+                          {sendingMedia
+                            ? mediaSendStage === "uploading"
+                              ? "Uploading..."
+                              : "Sending..."
+                            : "Send File"}
                         </button>
                       ) : (
                         <button
