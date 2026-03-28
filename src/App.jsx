@@ -98,6 +98,279 @@ function getFileBadge(mediaType = "") {
   return "File";
 }
 
+function getMessageText(row = {}) {
+  return (
+    row.content ??
+    row.text ??
+    row.text_content ??
+    row.message_text ??
+    row.body ??
+    row.caption ??
+    row.preview ??
+    ""
+  );
+}
+
+function getMessageMeta(row = {}) {
+  return (
+    row.meta ||
+    row.metadata ||
+    row.extra ||
+    row.payload ||
+    row.raw?.meta ||
+    row.raw?.metadata ||
+    row.raw?.extra ||
+    row.raw?.payload ||
+    {}
+  );
+}
+
+function isOutboundDirection(value = "") {
+  const direction = String(value || "").toLowerCase();
+  return (
+    direction === "outbound" ||
+    direction === "out" ||
+    direction === "sent" ||
+    direction === "agent"
+  );
+}
+
+function getFallbackFileName(row = {}) {
+  const meta = getMessageMeta(row);
+  const rawPayload = row.raw_payload || row.raw?.raw_payload || {};
+
+  return (
+    row.file_name ||
+    row.filename ||
+    row.media_name ||
+    row.document_name ||
+    meta.file_name ||
+    meta.filename ||
+    meta.media_name ||
+    meta.document_name ||
+    rawPayload._file_name ||
+    (Array.isArray(row.media_assets) && row.media_assets.length > 0
+      ? getMediaFileName(row.media_assets[0])
+      : null) ||
+    (Array.isArray(row.raw?.media_assets) && row.raw.media_assets.length > 0
+      ? getMediaFileName(row.raw.media_assets[0])
+      : null) ||
+    "attachment"
+  );
+}
+
+function isLargeFileFallback(row = {}) {
+  const meta = getMessageMeta(row);
+  const rawPayload = row.raw_payload || row.raw?.raw_payload || {};
+  const text = String(getMessageText(row) || "").toLowerCase();
+
+  if (
+    rawPayload?._transport === "r2_link" ||
+    rawPayload?._fallback_reason ||
+    rawPayload?._media_url
+  ) {
+    return true;
+  }
+
+  const explicitFlags = [
+    row.is_fallback,
+    row.is_large_file_fallback,
+    row.large_file_fallback,
+    row.fallback_to_link,
+    row.sent_as_link,
+    meta.is_fallback,
+    meta.is_large_file_fallback,
+    meta.large_file_fallback,
+    meta.fallback_to_link,
+    meta.sent_as_link,
+  ];
+
+  if (explicitFlags.some((value) => value === true)) {
+    return true;
+  }
+
+  const explicitTypes = [
+    row.fallback_type,
+    row.delivery_mode,
+    row.send_mode,
+    row.message_subtype,
+    row.transport,
+    meta.fallback_type,
+    meta.delivery_mode,
+    meta.send_mode,
+    meta.message_subtype,
+    meta.transport,
+    rawPayload._transport,
+    rawPayload._fallback_reason,
+  ]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase());
+
+  if (
+    explicitTypes.some((value) =>
+      [
+        "large_file",
+        "large-file",
+        "fallback_link",
+        "fallback-link",
+        "link_fallback",
+        "link-fallback",
+        "sent_as_link",
+        "sent-as-link",
+        "large_file_fallback",
+        "large-file-fallback",
+        "r2_link",
+        "r2-link",
+        "force_link_over_20mb",
+        "force-link-over-20mb",
+      ].includes(value)
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    text.includes("file too large") ||
+    text.includes("sent as link") ||
+    text.includes("fallback link") ||
+    text.includes("download link") ||
+    text.includes("文件过大") ||
+    text.includes("改为链接发送") ||
+    text.includes("已改为链接发送")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function getFallbackLink(row = {}, mediaUrlMap = {}) {
+  const meta = getMessageMeta(row);
+  const rawPayload = row.raw_payload || row.raw?.raw_payload || {};
+
+  const direct =
+    row.fallback_url ||
+    row.download_url ||
+    row.file_url ||
+    row.link_url ||
+    row.public_url ||
+    row.media_url ||
+    meta.fallback_url ||
+    meta.download_url ||
+    meta.file_url ||
+    meta.link_url ||
+    meta.public_url ||
+    meta.media_url ||
+    rawPayload._media_url;
+
+  if (direct) return direct;
+
+  const assets = Array.isArray(row.media_assets)
+    ? row.media_assets
+    : Array.isArray(row.raw?.media_assets)
+    ? row.raw.media_assets
+    : [];
+
+  for (const media of assets) {
+    if (media?.public_url) return media.public_url;
+    if (media?.download_url) return media.download_url;
+    if (media?.file_url) return media.file_url;
+    if (media?.url) return media.url;
+    if (media?.id && mediaUrlMap?.[media.id]) return mediaUrlMap[media.id];
+  }
+
+  const text = String(getMessageText(row) || "");
+  const firstUrl = text.match(/https?:\/\/[^\s]+/i)?.[0];
+  return firstUrl || "";
+}
+
+function shouldHideFallbackText(row = {}) {
+  if (!isLargeFileFallback(row)) return false;
+
+  const text = String(getMessageText(row) || "").trim();
+  if (!text) return true;
+
+  const normalized = text.toLowerCase();
+
+  if (isProbablyUrl(text)) return true;
+
+  if (
+    normalized.includes("file too large") ||
+    normalized.includes("sent as link") ||
+    normalized.includes("fallback link") ||
+    normalized.includes("download link") ||
+    normalized.includes("文件过大") ||
+    normalized.includes("改为链接发送") ||
+    normalized.includes("已改为链接发送")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function getConversationPreviewText(row = {}) {
+  const isOutbound = isOutboundDirection(
+    row.direction ||
+      row.message_direction ||
+      row.last_message_direction ||
+      row.lastMessageDirection ||
+      row.raw?.direction ||
+      row.raw?.message_direction ||
+      row.raw?.last_message_direction ||
+      row.raw?.lastMessageDirection ||
+      (row.from_me ? "outbound" : "")
+  );
+
+  if (isOutbound && isLargeFileFallback(row)) {
+    return `Large file sent as link: ${getFallbackFileName(row)}`;
+  }
+
+  const previewText =
+    row.last_message_preview ??
+    row.lastMessagePreview ??
+    row.preview ??
+    (getMessageText(row) || "");
+
+  return previewText;
+}
+
+function OutboundFallbackCard({ msg, mediaUrlMap = {}, timeColor = "text-blue-100" }) {
+  const link = getFallbackLink(msg, mediaUrlMap);
+  const fileName = getFallbackFileName(msg);
+
+  return (
+    <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
+      <div className="mb-2 inline-flex rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+        Sent as link
+      </div>
+
+      <div className="font-semibold">Large file fallback</div>
+
+      <div className="mt-1 break-all">
+        <span className="font-medium">File:</span> {fileName}
+      </div>
+
+      <div className="mt-1 leading-6">
+        This file was too large to send as native WhatsApp media, so it was sent as a link instead.
+      </div>
+
+      {link ? (
+        <a
+          href={link}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-3 inline-flex items-center rounded-xl bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
+        >
+          Open file link
+        </a>
+      ) : (
+        <div className={`mt-3 text-xs ${timeColor}`}>Link unavailable</div>
+      )}
+    </div>
+  );
+}
+
 function getConversationWindowInfo(messages = [], conversation = null) {
   const explicitExpiresAt =
     conversation?.service_window_expires_at ||
@@ -281,6 +554,8 @@ export default function App() {
   const [replyText, setReplyText] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
   const [sendingMedia, setSendingMedia] = useState(false);
+  const [mediaSendStage, setMediaSendStage] = useState("idle");
+  const [predictedFallback, setPredictedFallback] = useState(false);
   const [retryingMessageId, setRetryingMessageId] = useState(null);
   const [assignInput, setAssignInput] = useState("");
   const [newTag, setNewTag] = useState("");
@@ -372,9 +647,8 @@ export default function App() {
   const latestFailedMessage = useMemo(() => {
     return (
       [...messages]
-        .filter((m) =>
-          isOutboundDirection(m.direction) &&
-          String(m.status || "").toLowerCase() === "failed"
+        .filter(
+          (m) => isOutboundDirection(m.direction) && String(m.status || "").toLowerCase() === "failed"
         )
         .sort(
           (a, b) =>
@@ -438,6 +712,11 @@ export default function App() {
     setPreviewImageUrl("");
     setPreviewImageName("");
     setSelectedFile(null);
+    setPredictedFallback(false);
+    setMediaSendStage("idle");
+    setRetryingMessageId(null);
+    setPredictedFallback(false);
+    setMediaSendStage("idle");
     setRetryingMessageId(null);
   }, []);
 
@@ -508,11 +787,7 @@ export default function App() {
         row.profileName ??
         row.customer?.profile_name ??
         null,
-      last_message_preview:
-        row.last_message_preview ??
-        row.lastMessagePreview ??
-        row.preview ??
-        "",
+      last_message_preview: getConversationPreviewText(row),
       last_message_at:
         row.last_message_at ??
         row.lastMessageAt ??
@@ -520,6 +795,25 @@ export default function App() {
         row.updatedAt ??
         row.created_at ??
         null,
+      last_message_direction:
+        row.last_message_direction ??
+        row.lastMessageDirection ??
+        row.direction ??
+        row.message_direction ??
+        null,
+      last_message_type:
+        row.last_message_type ??
+        row.lastMessageType ??
+        row.type ??
+        row.message_type ??
+        null,
+      last_message_file_name:
+        row.last_message_file_name ??
+        row.lastMessageFileName ??
+        row.file_name ??
+        row.filename ??
+        null,
+      is_large_file_fallback: isLargeFileFallback(row),
       failed_count: Number(
         row.failed_count ?? row.failedCount ?? (row.has_failed ? 1 : 0)
       ),
@@ -538,6 +832,7 @@ export default function App() {
 
     let status = row.status ?? "sent";
     const createdAtMs = new Date(createdAt).getTime();
+    const rawPayload = row.raw_payload ?? row.rawPayload ?? {};
 
     if (
       status === "sending" &&
@@ -555,21 +850,32 @@ export default function App() {
         row.direction ??
         row.message_direction ??
         (row.from_me ? "outbound" : "inbound"),
-      content:
-        row.content ??
-        row.text ??
-        row.text_content ??
-        row.message_text ??
-        row.body ??
-        row.preview ??
-        "",
+      content: getMessageText(row),
       created_at: createdAt,
       status,
       type: row.type ?? row.message_type ?? "text",
+      file_name:
+        row.file_name ??
+        row.filename ??
+        row.media_name ??
+        row.document_name ??
+        rawPayload._file_name ??
+        null,
+      fallback_url:
+        row.fallback_url ??
+        row.download_url ??
+        row.file_url ??
+        row.link_url ??
+        row.public_url ??
+        row.media_url ??
+        rawPayload._media_url ??
+        null,
+      is_large_file_fallback: isLargeFileFallback(row),
       wa_message_id: row.wa_message_id ?? row.waMessageId ?? null,
       whatsapp_message_id:
         row.whatsapp_message_id ?? row.whatsappMessageId ?? null,
       media_assets: Array.isArray(row.media_assets) ? row.media_assets : [],
+      raw_payload: rawPayload,
       raw: row,
     };
   }
@@ -1189,9 +1495,16 @@ export default function App() {
     return () => clearInterval(interval);
   }, [user, loadConversations]);
 
+  function willUseLinkFallback(file) {
+    if (!file) return false;
+    return Number(file.size || 0) > 20 * 1024 * 1024;
+  }
+
   function handleSelectFile(e) {
     const file = e.target.files?.[0] || null;
     setSelectedFile(file);
+    setMediaSendStage("idle");
+    setPredictedFallback(willUseLinkFallback(file));
   }
 
   async function sendReply() {
@@ -1248,6 +1561,7 @@ export default function App() {
     }
 
     setSendingMedia(true);
+    setMediaSendStage("uploading");
 
     try {
       const token = localStorage.getItem("token");
@@ -1273,6 +1587,7 @@ export default function App() {
       }
 
       const mediaId = uploadData.data.id;
+      setMediaSendStage("sending");
 
       const sendRes = await axios.post(`${API_BASE}/messages/send-media`, {
         conversationId: selectedConversation.id,
@@ -1287,6 +1602,8 @@ export default function App() {
 
       setSelectedFile(null);
       setReplyText("");
+      setPredictedFallback(false);
+      setMediaSendStage("idle");
 
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
@@ -1307,6 +1624,7 @@ export default function App() {
       );
     } finally {
       setSendingMedia(false);
+      setMediaSendStage("idle");
     }
   }
 
@@ -1493,71 +1811,74 @@ export default function App() {
     }
   }
 
-  function getRetryTextBody(message = {}) {
-    const raw = String(message?.content || "").trim();
-    if (!raw) return "";
-
-    if (/^\[(image|video|audio|document|file) message\]$/i.test(raw)) {
-      return "";
-    }
-
-    if (isLargeFileFallback(message)) {
-      return "";
-    }
-
-    return raw;
-  }
-
-  function getRetryMediaId(message = {}) {
-    const assets = Array.isArray(message?.media_assets) ? message.media_assets : [];
-    const firstWithId = assets.find((media) => media?.id);
-    return firstWithId?.id || null;
-  }
-
   async function retryFailedMessage(failedMsg = null) {
-    const targetMessage = failedMsg || latestFailedMessage;
+  if (!selectedConversation?.id) return;
 
-    if (!selectedConversation?.id || !targetMessage) return;
+  const target = failedMsg || latestFailedMessage || null;
+  if (!target) return;
 
-    const targetMessageId = targetMessage?.id || "__conversation__";
-    setRetryingMessageId(targetMessageId);
+  const targetMessageId = target.id || "__conversation__";
+  setRetryingMessageId(targetMessageId);
 
-    try {
-      const mediaId = getRetryMediaId(targetMessage);
+  try {
+    const hasMedia =
+      Array.isArray(target.media_assets) && target.media_assets.length > 0;
+    const firstMedia = hasMedia ? target.media_assets[0] : null;
 
-      if (mediaId) {
-        await axios.post(`${API_BASE}/messages/send-media`, {
-          conversationId: selectedConversation.id,
-          customerId: selectedCustomerId,
-          mediaId,
-          caption: getRetryTextBody(targetMessage),
-        });
-      } else {
-        const textBody = getRetryTextBody(targetMessage);
+    if (hasMedia && firstMedia?.id) {
+      const captionText = String(target.content || "").trim();
+      const placeholderTexts = new Set([
+        "[image message]",
+        "[video message]",
+        "[audio message]",
+        "[document message]",
+        "[file message]",
+      ]);
 
-        if (!textBody) {
-          throw new Error("No retryable content found for this message.");
-        }
+      const safeCaption = placeholderTexts.has(captionText.toLowerCase())
+        ? ""
+        : captionText;
 
-        await axios.post(`${API_BASE}/messages/send`, {
-          conversationId: selectedConversation.id,
-          text: textBody,
-        });
+      const res = await axios.post(`${API_BASE}/messages/send-media`, {
+        conversationId: selectedConversation.id,
+        customerId: selectedCustomerId,
+        mediaId: firstMedia.id,
+        caption: safeCaption,
+      });
+
+      if (!res.data?.success) {
+        throw new Error(res.data?.message || "Retry media failed");
+      }
+    } else {
+      const text = String(target.content || "").trim();
+
+      if (!text) {
+        throw new Error("No retryable content found.");
       }
 
-      markSuccessfulSync();
-      await loadConversations({ silent: true });
-      await loadMessages(selectedConversation.id, { silent: true });
-    } catch (err) {
-      if (err?.response?.status === 401) return;
-      console.error("retryFailedMessage error:", err);
-      setFriendlyError(
-        err?.response?.data?.message || err?.message || "Retry failed."
-      );
-    } finally {
-      setRetryingMessageId(null);
+      const res = await axios.post(`${API_BASE}/messages/send`, {
+        conversationId: selectedConversation.id,
+        text,
+      });
+
+      if (!res.data?.success) {
+        throw new Error(res.data?.message || "Retry text failed");
+      }
     }
+
+    markSuccessfulSync();
+    await loadConversations({ silent: true });
+    await loadMessages(selectedConversation.id, { silent: true });
+  } catch (err) {
+    if (err?.response?.status === 401) return;
+    console.error("retryFailedMessage error:", err);
+    setFriendlyError(
+      err?.response?.data?.message || err?.message || "Retry failed."
+    );
+  } finally {
+    setRetryingMessageId(null);
   }
+}
 
   async function dismissFailedMessage() {
     if (!selectedConversation?.id) return;
@@ -1704,7 +2025,6 @@ export default function App() {
     setPreviewImageUrl("");
     setPreviewImageName("");
     setSelectedFile(null);
-    setRetryingMessageId(null);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -2043,7 +2363,7 @@ export default function App() {
                           </div>
 
                           <div className="mt-1 text-sm truncate">
-                            {conv.last_message_preview || "No messages yet"}
+                            {getConversationPreviewText(conv) || "No messages yet"}
                           </div>
 
                           <div className="mt-2 flex items-center gap-2 flex-wrap">
@@ -2125,7 +2445,7 @@ export default function App() {
                     <button
                       onClick={() => retryFailedMessage(latestFailedMessage)}
                       disabled={!latestFailedMessage || Boolean(retryingMessageId)}
-                      className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
                       type="button"
                     >
                       {retryingMessageId ? "Retrying..." : "Retry Failed"}
@@ -2157,10 +2477,9 @@ export default function App() {
                   ) : (
                     <div className="space-y-4">
                       {messages.map((msg) => {
-                        const isOutbound =
-                          msg.direction === "outbound" ||
-                          msg.direction === "out" ||
-                          msg.direction === "sent";
+                        const isOutbound = isOutboundDirection(msg.direction);
+                        const isFallback =
+  isOutbound && (msg.is_large_file_fallback || isLargeFileFallback(msg));
 
                         const bubbleBase = isOutbound
                           ? "bg-blue-600 text-white rounded-2xl rounded-br-md"
@@ -2170,6 +2489,12 @@ export default function App() {
                         const subtleCard = isOutbound
                           ? "bg-white/10 border border-white/20"
                           : "bg-gray-50 border border-gray-200";
+
+                        const visibleText = shouldHideFallbackText(msg)
+                          ? ""
+                          : String(msg.content || "").trim();
+
+                        const hasVisibleText = Boolean(visibleText);
 
                         return (
                           <div
@@ -2182,18 +2507,29 @@ export default function App() {
                               <div
                                 className={`${bubbleBase} px-4 py-3 shadow-sm overflow-hidden`}
                               >
-                                {msg.content ? (
+                                {hasVisibleText ? (
                                   <div className="text-sm leading-6 whitespace-pre-wrap break-words break-all">
-                                    {renderTextWithLinks(msg.content)}
+                                    {renderTextWithLinks(visibleText)}
                                   </div>
                                 ) : null}
 
-                                {msg.media_assets?.length > 0 ? (
-                                  <div className={`${msg.content ? "mt-3" : ""} space-y-3`}>
+                                {isFallback ? (
+                                  <div className={hasVisibleText ? "mt-3" : ""}>
+                                    <OutboundFallbackCard
+                                      msg={msg}
+                                      mediaUrlMap={mediaUrlMap}
+                                      timeColor={timeColor}
+                                    />
+                                  </div>
+                                ) : msg.media_assets?.length > 0 ? (
+                                  <div className={`${hasVisibleText ? "mt-3" : ""} space-y-3`}>
                                     {msg.media_assets.map((media) => {
-                                      const mediaUrl = media?.id
-                                        ? mediaUrlMap[media.id]
-                                        : null;
+                                      const mediaUrl =
+                                        media?.public_url ||
+                                        media?.download_url ||
+                                        media?.file_url ||
+                                        media?.url ||
+                                        (media?.id ? mediaUrlMap[media.id] : null);
                                       if (!mediaUrl) return null;
 
                                       const mediaType = getMediaKind(media);
@@ -2405,11 +2741,31 @@ export default function App() {
                         className="ml-3 text-sm text-red-600 hover:text-red-700"
                         onClick={() => {
                           setSelectedFile(null);
+                          setPredictedFallback(false);
+                          setMediaSendStage("idle");
                           if (fileInputRef.current) fileInputRef.current.value = "";
                         }}
                       >
                         Remove
                       </button>
+                    </div>
+                  ) : null}
+
+                  {selectedFile && predictedFallback ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      This file is large and will likely be sent as a link instead of native WhatsApp media.
+                    </div>
+                  ) : null}
+
+                  {selectedFile && sendingMedia && mediaSendStage === "uploading" ? (
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                      Uploading file...
+                    </div>
+                  ) : null}
+
+                  {selectedFile && sendingMedia && mediaSendStage === "sending" ? (
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                      Sending message...
                     </div>
                   ) : null}
 
@@ -2450,7 +2806,11 @@ export default function App() {
                           className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                           type="button"
                         >
-                          {sendingMedia ? "Sending..." : "Send File"}
+                          {sendingMedia
+                            ? mediaSendStage === "uploading"
+                              ? "Uploading..."
+                              : "Sending..."
+                            : "Send File"}
                         </button>
                       ) : (
                         <button
