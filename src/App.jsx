@@ -2792,15 +2792,19 @@ async function sendTemplateMessage() {
         </>
       )}
     </div>
-                        <button
-                          type="button"
-                          onClick={openTemplatePicker}
-                          className="shrink-0 rounded bg-amber-600 px-3 py-2 text-xs font-medium text-white hover:bg-amber-700"
-                        >
-                          Choose Template
-                        </button>
-                      </div>
-                    ) : (
+
+    {/* 👇 关键：只有非 waiting 才显示按钮 */}
+    {!isWaitingReply ? (
+      <button
+        type="button"
+        onClick={openTemplatePicker}
+        className="shrink-0 rounded bg-amber-600 px-3 py-2 text-xs font-medium text-white hover:bg-amber-700"
+      >
+        Choose Template
+      </button>
+    ) : null}
+  </div>
+) : (
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <div className="font-medium">24h window active</div>
