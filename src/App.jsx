@@ -2793,6 +2793,26 @@ async function sendTemplateMessage() {
       )}
     </div>
 
+    {!isWaitingReply ? (
+      <button
+        type="button"
+        onClick={openTemplatePicker}
+        className="shrink-0 rounded bg-amber-600 px-3 py-2 text-xs font-medium text-white hover:bg-amber-700"
+      >
+        Choose Template
+      </button>
+    ) : null}
+  </div>
+) : (
+        <>
+          <div className="font-medium">24h window expired</div>
+          <div className="text-xs mt-1">
+            Free-form reply is disabled. Please send an approved template.
+          </div>
+        </>
+      )}
+    </div>
+
     {/* 👇 关键：只有非 waiting 才显示按钮 */}
     {!isWaitingReply ? (
       <button
