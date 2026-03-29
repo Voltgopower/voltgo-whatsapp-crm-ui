@@ -14,6 +14,10 @@ const SOCKET_BASE =
 
 console.log("API_BASE =", API_BASE);
 
+function cn(...classes) {
+  return classes.filter(Boolean).join(" ");
+}
+
 function sameId(a, b) {
   return String(a ?? "").trim() === String(b ?? "").trim();
 }
@@ -632,6 +636,7 @@ export default function App() {
   const previewCustomerName =
     getPoliteTemplateName(templateParams.param1 || "") || "there";
   const [sendingTemplate, setSendingTemplate] = useState(false);
+  const [showRightPanel, setShowRightPanel] = useState(true);
 
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -752,9 +757,6 @@ export default function App() {
     setPreviewImageUrl("");
     setPreviewImageName("");
     setSelectedFile(null);
-    setPredictedFallback(false);
-    setMediaSendStage("idle");
-    setRetryingMessageId(null);
     setPredictedFallback(false);
     setMediaSendStage("idle");
     setRetryingMessageId(null);
@@ -1017,9 +1019,11 @@ export default function App() {
           normalized = normalized.filter((c) => !c.assigned_to);
         } else if (scope === "failed") {
           normalized = normalized.filter((c) => Number(c.failed_count) > 0);
-        } else if (scope === "mine" && user?.id) {
+        } else if (scope === "mine") {
           normalized = normalized.filter(
-            (c) => String(c.assigned_to || "") === String(user.id)
+            (c) =>
+              String(c.assigned_to || "") === String(user?.id ?? "") ||
+              String(c.assigned_to || "") === String(user?.username ?? "")
           );
         }
 
@@ -2248,7 +2252,8 @@ async function sendTemplateMessage() {
   }
 
   return (
-    <div className="h-screen bg-gray-100 text-gray-900">
+    <>
+      <div className="h-screen bg-gray-100 text-gray-900">
       <div className="h-full flex flex-col">
         <div className="px-4 py-3 border-b bg-white flex items-center justify-between">
           <div>
@@ -2284,6 +2289,14 @@ async function sendTemplateMessage() {
               Change Password
             </button>
 
+            <button
+              onClick={() => setShowRightPanel((prev) => !prev)}
+              className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
+              type="button"
+            >
+              {showRightPanel ? "Hide Details" : "Show Details"}
+            </button>
+
             <div className={`px-3 py-2 rounded text-sm ${systemHealthClass}`}>
               {systemHealthLabel}
             </div>
@@ -2311,7 +2324,7 @@ async function sendTemplateMessage() {
         ) : null}
 
         <div className="flex-1 min-h-0 flex">
-          <div className="w-[360px] bg-white border-r flex flex-col min-h-0">
+          <div className="w-[280px] bg-white border-r flex flex-col min-h-0">
             <div className="p-3 border-b">
               <input
                 type="text"
@@ -2553,7 +2566,10 @@ async function sendTemplateMessage() {
                               isOutbound ? "justify-end" : "justify-start"
                             }`}
                           >
-                            <div className="max-w-[78%] min-w-0">
+                            <div className={isOutbound 
+  ? "w-fit max-w-[85%] min-w-0" 
+  : "w-fit max-w-[75%] min-w-0"
+}>
                               <div
                                 className={`${bubbleBase} px-4 py-3 shadow-sm overflow-hidden`}
                               >
@@ -2883,7 +2899,8 @@ async function sendTemplateMessage() {
             )}
           </div>
 
-          <div className="w-[360px] bg-white border-l flex flex-col min-h-0">
+          {showRightPanel ? (
+          <div className="w-[300px] bg-white border-l flex flex-col min-h-0">
             {selectedConversation ? (
               <div className="flex-1 overflow-y-auto p-4 space-y-6">
                 <div>
@@ -3077,7 +3094,9 @@ async function sendTemplateMessage() {
               </div>
             )}
           </div>
+          ) : null}
         </div>
+      </div>
       </div>
 
       {showTemplatePicker && (
@@ -3365,6 +3384,6 @@ async function sendTemplateMessage() {
           </div>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }
