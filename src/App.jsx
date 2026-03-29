@@ -2090,7 +2090,6 @@ export default function App() {
     "Unknown";
 
   const customerPhone = customerDetail?.phone || selectedConversation?.phone || "-";
-  const customerNotesText = customerDetail?.notes || "";
   const templateDepartment = useMemo(() => {
   const role = String(user?.role || "").toLowerCase();
 
@@ -3002,14 +3001,7 @@ async function sendTemplateMessage() {
                     </div>
                   )}
                 </div>
-
-                <div className="border-t pt-4">
-                  <div className="text-sm font-semibold mb-2">Customer Notes</div>
-                  <div className="text-sm text-gray-700 whitespace-pre-wrap rounded border bg-gray-50 p-3 min-h-[80px]">
-                    {customerNotesText || "No customer notes."}
-                  </div>
-                </div>
-
+               
                 <div className="border-t pt-4">
                   <div className="text-sm font-semibold mb-2">Handling Log</div>
 
