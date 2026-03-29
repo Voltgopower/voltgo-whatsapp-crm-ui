@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { io } from "socket.io-client";
+import {
+  getTemplatesByDepartment,
+  getTemplateStatusLabel,
+} from "./config/messageTemplates";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api";
@@ -450,6 +454,42 @@ function getDefaultTemplateParamValue(
   return "";
 }
 
+function looksLikePhoneNumber(value = "") {
+  const normalized = String(value || "").replace(/[\s\-().]/g, "");
+  return /^\+?\d{7,}$/.test(normalized);
+}
+
+function getPoliteTemplateName(value = "") {
+  const raw = String(value || "").trim();
+
+  if (!raw) return "";
+  if (raw.toLowerCase() === "unknown") return "";
+  if (raw.toLowerCase() === "null") return "";
+  if (looksLikePhoneNumber(raw)) return "";
+  if (raw.length > 24) return "";
+  if (/^[^\p{L}\p{N}]+$/u.test(raw)) return "";
+
+  return raw;
+}
+function renderTemplatePreview(template, params) {
+  if (!template) return "";
+
+  let text = template.description || "";
+
+  const count = Number(template.bodyParamCount || 0);
+
+  for (let i = 0; i < count; i++) {
+    const value =
+      i === 0
+        ? getPoliteTemplateName(params[`param${i + 1}`] || "") || "there"
+        : params[`param${i + 1}`] || "";
+
+    const regex = new RegExp(`{{\\s*${i + 1}\\s*}}`, "g");
+    text = text.replace(regex, value);
+  }
+
+  return text;
+}
 function LoginScreen({ onLoginSuccess }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -586,11 +626,11 @@ export default function App() {
   const [changePasswordError, setChangePasswordError] = useState("");
   const [changePasswordSuccess, setChangePasswordSuccess] = useState("");
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
-  const [templates, setTemplates] = useState([]);
-  const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [templatesError, setTemplatesError] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [templateParams, setTemplateParams] = useState({});
+  const previewCustomerName =
+    getPoliteTemplateName(templateParams.param1 || "") || "there";
   const [sendingTemplate, setSendingTemplate] = useState(false);
 
   const socketRef = useRef(null);
@@ -2047,113 +2087,123 @@ export default function App() {
 
   const customerPhone = customerDetail?.phone || selectedConversation?.phone || "-";
   const customerNotesText = customerDetail?.notes || "";
+  const templateDepartment = useMemo(() => {
+  const role = String(user?.role || "").toLowerCase();
 
-  useEffect(() => {
-    if (!showTemplatePicker) return;
+  if (role === "sales") return "sales";
+  if (role === "support") return "support";
+  return "all";
+}, [user?.role]);
 
-    const loadTemplates = async () => {
-      setLoadingTemplates(true);
-      setTemplatesError("");
+const templates = useMemo(() => {
+  return getTemplatesByDepartment(templateDepartment);
+}, [templateDepartment]);
 
-      try {
-        const res = await axios.get(`${API_BASE}/templates`);
-        const rows = Array.isArray(res.data?.data)
-          ? res.data.data
-          : Array.isArray(res.data?.templates)
-          ? res.data.templates
-          : [];
-
-        setTemplates(rows);
-      } catch (err) {
-        if (err?.response?.status === 401) {
-          handleUnauthorized();
-          return;
-        }
-
-        console.error("loadTemplates error:", err);
-        setTemplatesError(
-          err?.response?.data?.message || err?.message || "Failed to load templates."
-        );
-      } finally {
-        setLoadingTemplates(false);
-      }
-    };
-
-    loadTemplates();
-  }, [showTemplatePicker, handleUnauthorized]);
-
+  
   function openTemplatePicker() {
-    setShowTemplatePicker(true);
-    setTemplatesError("");
+  setShowTemplatePicker(true);
+  setTemplatesError("");
+}
+
+function closeTemplatePicker() {
+  if (sendingTemplate) return;
+  setShowTemplatePicker(false);
+  setSelectedTemplate(null);
+  setTemplateParams({});
+  setTemplatesError("");
+}
+
+function selectTemplate(template) {
+  setSelectedTemplate(template);
+
+  const defaults = {};
+  const count = Number(template?.bodyParamCount || 0);
+
+  for (let i = 0; i < count; i += 1) {
+    const key = `param${i + 1}`;
+
+    if (i === 0) {
+  defaults[key] = getPoliteTemplateName(customerDisplayName);
+} else {
+  defaults[key] = "";
+   }
   }
 
-  function closeTemplatePicker() {
-    if (sendingTemplate) return;
-    setShowTemplatePicker(false);
-    setSelectedTemplate(null);
-    setTemplateParams({});
-    setTemplatesError("");
+  setTemplateParams(defaults);
+  setTemplatesError("");
+}
+
+function updateTemplateParam(key, value) {
+  setTemplateParams((prev) => ({
+    ...prev,
+    [key]: value,
+  }));
+}
+
+async function sendTemplateMessage() {
+  if (!selectedConversation?.id || !selectedTemplate || sendingTemplate) return;
+
+  const paramCount = Number(selectedTemplate.bodyParamCount || 0);
+  const bodyParams = [];
+
+  for (let i = 0; i < paramCount; i += 1) {
+  const key = `param${i + 1}`;
+  let value = String(templateParams[key] || "").trim();
+
+  if (i === 0) {
+    value = getPoliteTemplateName(value) || "there";
   }
 
-  function selectTemplate(template) {
-    setSelectedTemplate(template);
+  if (!value) {
+    const label =
+      selectedTemplate.bodyParamLabels?.[i] || `Parameter ${i + 1}`;
+    setTemplatesError(`${label} is required.`);
+    return;
+  }
 
-    const defaults = {};
-    const schema = Array.isArray(template?.params_schema) ? template.params_schema : [];
+  bodyParams.push(value);
+}
 
-    for (const field of schema) {
-      defaults[field.key] = getDefaultTemplateParamValue(field.key, {
-        customerDisplayName,
-        selectedConversation,
-      });
+  setSendingTemplate(true);
+  setTemplatesError("");
+
+  try {
+    const res = await axios.post(`${API_BASE}/messages/send-template`, {
+      conversationId: selectedConversation.id,
+      to: customerPhone === "-" ? "" : customerPhone,
+      templateName: selectedTemplate.templateName,
+      languageCode: selectedTemplate.languageCode || "en_US",
+      bodyParams,
+    });
+
+    if (!res.data?.success) {
+      throw new Error(res.data?.message || "Send template failed");
     }
 
-    setTemplateParams(defaults);
-  }
-
-  function updateTemplateParam(key, value) {
-    setTemplateParams((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
-  }
-
-  async function sendTemplateMessage() {
-    if (!selectedConversation?.id || !selectedTemplate || sendingTemplate) return;
-
-    setSendingTemplate(true);
-
-    try {
-      const res = await axios.post(`${API_BASE}/messages/send-template`, {
-        conversationId: selectedConversation.id,
-        templateName: selectedTemplate.template_name,
-        languageCode: selectedTemplate.language || "en_US",
-        params: templateParams,
-      });
-
-      if (!res.data?.success) {
-        throw new Error(res.data?.message || "Send template failed");
-      }
-
-      closeTemplatePicker();
-      markSuccessfulSync();
-      setFriendlyWarning("Template sent. Waiting for customer reply to reopen the 24h window.");
-      await loadMessages(selectedConversation.id, { silent: true });
-      await loadConversations({ silent: true });
-    } catch (err) {
-      if (err?.response?.status === 401) {
-        handleUnauthorized();
-        return;
-      }
-
-      console.error("sendTemplateMessage error:", err);
-      setTemplatesError(
-        err?.response?.data?.message || err?.message || "Failed to send template."
-      );
-    } finally {
-      setSendingTemplate(false);
+    closeTemplatePicker();
+    markSuccessfulSync();
+    setFriendlyWarning(
+      "Template sent. Waiting for customer reply to reopen the 24h window."
+    );
+    await loadMessages(selectedConversation.id, { silent: true });
+    await loadConversations({ silent: true });
+  } catch (err) {
+    if (err?.response?.status === 401) {
+      handleUnauthorized();
+      return;
     }
+
+    console.error("sendTemplateMessage error:", err);
+    setTemplatesError(
+      err?.response?.data?.message ||
+        err?.response?.data?.error?.message ||
+        err?.message ||
+        "Failed to send template."
+    );
+  } finally {
+    setSendingTemplate(false);
   }
+}
 
   const filteredCounts = useMemo(() => {
     return {
@@ -3031,155 +3081,191 @@ export default function App() {
       </div>
 
       {showTemplatePicker && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-          <div className="w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-xl flex flex-col">
-            <div className="border-b px-6 py-4 flex items-center justify-between shrink-0">
-              <div>
-                <div className="text-lg font-semibold">Choose Template</div>
-                <div className="text-sm text-gray-500 mt-1">
-                  Send an approved template to reopen the conversation.
-                </div>
-              </div>
-              <button
-                onClick={closeTemplatePicker}
-                disabled={sendingTemplate}
-                className="text-sm text-gray-500 hover:text-gray-700 disabled:opacity-50"
-                type="button"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[320px,1fr]">
-              <div className="border-r p-4 space-y-3 overflow-y-auto min-h-0">
-                {loadingTemplates ? (
-                  <div className="text-sm text-gray-500">Loading templates...</div>
-                ) : templatesError ? (
-                  <div className="text-sm text-red-600">{templatesError}</div>
-                ) : templates.length === 0 ? (
-                  <div className="text-sm text-gray-500">No templates available.</div>
-                ) : (
-                  templates.map((template) => {
-                    const active = sameId(selectedTemplate?.id, template.id);
-                    return (
-                      <button
-                        key={template.id}
-                        type="button"
-                        onClick={() => selectTemplate(template)}
-                        className={`w-full rounded-xl border px-4 py-4 text-left transition ${
-                          active
-                            ? "border-blue-500 bg-blue-50 shadow-sm"
-                            : "border-gray-200 bg-white hover:bg-gray-50"
-                        }`}
-                      >
-                        <div className="text-sm font-semibold">{template.display_name}</div>
-                        <div className="text-xs text-gray-500 mt-1">
-                          {template.category} · {template.language}
-                        </div>
-                        {template.description ? (
-                          <div className="text-xs text-gray-600 mt-2 line-clamp-3">
-                            {template.description}
-                          </div>
-                        ) : null}
-                      </button>
-                    );
-                  })
-                )}
-              </div>
-
-              <div className="flex flex-col min-h-0">
-                <div className="flex-1 overflow-y-auto min-h-0 p-6">
-                  {selectedTemplate ? (
-                    <div className="space-y-5">
-                      <div>
-                        <div className="text-lg font-semibold">
-                          {selectedTemplate.display_name}
-                        </div>
-                        <div className="text-sm text-gray-500 mt-1">
-                          {selectedTemplate.template_name} · {selectedTemplate.language}
-                        </div>
-                        {selectedTemplate.description ? (
-                          <div className="text-sm text-gray-600 mt-3">
-                            {selectedTemplate.description}
-                          </div>
-                        ) : null}
-                      </div>
-
-                      {Array.isArray(selectedTemplate.params_schema) &&
-                      selectedTemplate.params_schema.length > 0 ? (
-                        <div className="space-y-3">
-                          <div className="text-sm font-medium">Template parameters</div>
-                          {selectedTemplate.params_schema.map((field) => (
-                            <div key={field.key}>
-                              <label className="block text-xs text-gray-500 mb-1">
-                                {field.label || field.key}
-                                {field.required ? " *" : ""}
-                              </label>
-                              <input
-                                type="text"
-                                className="w-full border rounded px-3 py-2 text-sm"
-                                value={templateParams[field.key] || ""}
-                                onChange={(e) =>
-                                  updateTemplateParam(field.key, e.target.value)
-                                }
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-sm text-gray-500">
-                          This template has no parameters.
-                        </div>
-                      )}
-
-                      <div className="rounded-xl border bg-gray-50 p-4">
-                        <div className="text-xs font-medium text-gray-500 mb-2">
-                          Preview
-                        </div>
-                        <div className="text-sm whitespace-pre-wrap text-gray-800 break-words">
-                          {String(selectedTemplate.body_text || "").replace(
-                            /\{\{(.*?)\}\}/g,
-                            (_, key) =>
-                              templateParams[String(key).trim()] || `{{${key}}}`
-                          )}
-                        </div>
-                      </div>
-
-                      {templatesError ? (
-                        <div className="text-sm text-red-600">{templatesError}</div>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <div className="h-full flex items-center justify-center text-gray-400 text-sm">
-                      Select a template to continue.
-                    </div>
-                  )}
-                </div>
-
-                <div className="border-t px-6 py-4 flex justify-end gap-2 bg-white shrink-0">
-                  <button
-                    onClick={closeTemplatePicker}
-                    disabled={sendingTemplate}
-                    className="px-4 py-2 rounded border bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
-                    type="button"
-                  >
-                    Cancel
-                  </button>
-
-                  <button
-                    onClick={sendTemplateMessage}
-                    disabled={!selectedTemplate || sendingTemplate}
-                    className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    type="button"
-                  >
-                    {sendingTemplate ? "Sending..." : "Send Template"}
-                  </button>
-                </div>
-              </div>
-            </div>
+  <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+    <div className="w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-xl flex flex-col">
+      <div className="border-b px-6 py-4 flex items-center justify-between shrink-0">
+        <div>
+          <div className="text-lg font-semibold">Choose Template</div>
+          <div className="text-sm text-gray-500 mt-1">
+            Send an approved template to reopen the conversation.
           </div>
         </div>
-      )}
+        <button
+          onClick={closeTemplatePicker}
+          disabled={sendingTemplate}
+          className="text-sm text-gray-500 hover:text-gray-700 disabled:opacity-50"
+          type="button"
+        >
+          Close
+        </button>
+      </div>
+
+      <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[320px,1fr]">
+        <div className="border-r p-4 space-y-3 overflow-y-auto min-h-0">
+          {templatesError ? (
+            <div className="text-sm text-red-600">{templatesError}</div>
+          ) : templates.length === 0 ? (
+            <div className="text-sm text-gray-500">No templates available.</div>
+          ) : (
+            templates.map((template) => {
+              const active = selectedTemplate?.key === template.key;
+
+              return (
+                <button
+                  key={template.key}
+                  type="button"
+                  onClick={() => selectTemplate(template)}
+                  className={`w-full rounded-xl border px-4 py-4 text-left transition ${
+                    active
+                      ? "border-blue-500 bg-blue-50 shadow-sm"
+                      : "border-gray-200 bg-white hover:bg-gray-50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-semibold">{template.label}</div>
+                    <span className="text-[11px] text-gray-500 whitespace-nowrap">
+                      {getTemplateStatusLabel(template.reviewStatus)}
+                    </span>
+                  </div>
+
+                  <div className="text-xs text-gray-500 mt-1">
+                    {template.department} · {template.languageCode}
+                  </div>
+
+                  {template.description ? (
+                    <div className="text-xs text-gray-600 mt-2 line-clamp-3">
+                      {template.description}
+                    </div>
+                  ) : null}
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        <div className="flex flex-col min-h-0">
+          <div className="flex-1 overflow-y-auto min-h-0 p-6">
+            {selectedTemplate ? (
+              <div className="space-y-5">
+                <div>
+                  <div className="text-lg font-semibold">
+                    {selectedTemplate.label}
+                  </div>
+                  <div className="text-sm text-gray-500 mt-1">
+                    {selectedTemplate.templateName} · {selectedTemplate.languageCode}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-700">
+                      {selectedTemplate.category}
+                    </span>
+                    <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-700">
+                      {getTemplateStatusLabel(selectedTemplate.reviewStatus)}
+                    </span>
+                  </div>
+
+                  {selectedTemplate.description ? (
+                    <div className="text-sm text-gray-600 mt-3">
+                      {selectedTemplate.description}
+                    </div>
+                  ) : null}
+                </div>
+
+                {Number(selectedTemplate.bodyParamCount || 0) > 0 ? (
+                  <div className="space-y-4">
+                    <div className="text-sm font-medium text-gray-800">
+                      Template parameters
+                    </div>
+
+                    {Array.from(
+                      { length: Number(selectedTemplate.bodyParamCount || 0) },
+                      (_, index) => {
+                        const key = `param${index + 1}`;
+                        const label =
+                          selectedTemplate.bodyParamLabels?.[index] ||
+                          `Parameter ${index + 1}`;
+
+                        return (
+                          <div key={key} className="mb-4">
+                            <label className="block text-sm text-gray-700 mb-1">
+  {label}
+</label>
+
+{index === 0 ? (
+  <div className="mb-2 text-xs text-gray-500">
+    Auto-filled when available. You can edit it before sending. If left blank,
+    the message will use “there” for a polite greeting.
+  </div>
+) : null}
+
+<input
+  type="text"
+  value={templateParams[key] || ""}
+  onChange={(e) => updateTemplateParam(key, e.target.value)}
+  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none focus:border-blue-500"
+  placeholder={
+    index === 0
+      ? "Enter customer name (optional)"
+      : `Enter ${String(label || "").toLowerCase()}`
+  }
+/>
+                          </div>
+                        );
+                      }
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-xl bg-gray-50 px-4 py-3 text-sm text-gray-500">
+                    This template does not require parameters.
+                  </div>
+                )}
+
+                {templatesError ? (
+                  <div className="text-sm text-red-600">{templatesError}</div>
+                ) : null}
+<div className="mt-6">
+  <div className="text-sm font-medium text-gray-800 mb-2">
+    Preview
+  </div>
+
+  <div className="rounded-xl border bg-gray-50 px-4 py-3 text-sm text-gray-800 leading-6 whitespace-pre-wrap">
+    {selectedTemplate
+  ? renderTemplatePreview(selectedTemplate, templateParams)
+  : "Select a template to preview"}
+  </div>
+</div>
+              </div>
+            ) : (
+              <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                Select a template to preview and send.
+              </div>
+            )}
+          </div>
+
+          <div className="border-t px-6 py-4 flex items-center justify-end gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={closeTemplatePicker}
+              disabled={sendingTemplate}
+              className="rounded-xl border px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              onClick={sendTemplateMessage}
+              disabled={!selectedTemplate || sendingTemplate}
+              className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {sendingTemplate ? "Sending..." : "Send Template"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
 
       {showChangePassword && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4">
