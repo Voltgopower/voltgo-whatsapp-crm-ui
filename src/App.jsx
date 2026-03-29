@@ -48,6 +48,23 @@ function getMediaKind(media = {}) {
   return "file";
 }
 
+function getTemplateWaitingState(messages = []) {
+  if (!Array.isArray(messages) || messages.length === 0) return false;
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+
+    if (msg.direction === "outbound" && msg.message_type === "template") {
+      const hasReplyAfter = messages.slice(i + 1).some(
+        (m) => m.direction === "inbound"
+      );
+
+      return !hasReplyAfter;
+    }
+  }
+
+  return false;
+}
 function getMediaFileName(media = {}) {
   return (
     media.original_filename ||
@@ -688,6 +705,8 @@ export default function App() {
   }, [messages, selectedConversation]);
 
   const isWindowExpired = !conversationWindow.isOpen;
+
+  const isWaitingReply = getTemplateWaitingState(messages);
 
   const latestFailedMessage = useMemo(() => {
     return (
@@ -2753,13 +2772,26 @@ async function sendTemplateMessage() {
                     }`}
                   >
                     {isWindowExpired ? (
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="font-medium">24h window expired</div>
-                          <div className="text-xs mt-1">
-                            Free-form reply is disabled. Please send an approved template.
-                          </div>
-                        </div>
+  <div className="flex items-center justify-between gap-3">
+    <div>
+      {isWaitingReply ? (
+        <>
+          <div className="font-medium">
+            Template sent. Waiting for customer reply.
+          </div>
+          <div className="text-xs mt-1">
+            The 24h window will reopen after the customer responds.
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="font-medium">24h window expired</div>
+          <div className="text-xs mt-1">
+            Free-form reply is disabled. Please send an approved template.
+          </div>
+        </>
+      )}
+    </div>
                         <button
                           type="button"
                           onClick={openTemplatePicker}
