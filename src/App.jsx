@@ -2825,13 +2825,14 @@ async function sendTemplateMessage() {
     </div>
   )}
 </div>
+                  {selectedFile ? (
                     <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
                       <div className="min-w-0">
                         <div className="text-sm font-medium truncate">
-                          {selectedFile.name}
+                          {selectedFile?.name || ""}
                         </div>
                         <div className="text-xs text-gray-500">
-                          {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                          {(Number(selectedFile?.size || 0) / 1024 / 1024).toFixed(2)} MB
                         </div>
                       </div>
 
