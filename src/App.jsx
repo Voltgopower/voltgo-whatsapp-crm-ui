@@ -2765,88 +2765,66 @@ async function sendTemplateMessage() {
 
                 <div className="p-4 border-t bg-white space-y-3">
                   <div
-                    className={`rounded-lg border px-3 py-2 text-sm ${
-                      isWindowExpired
-                        ? "bg-amber-50 border-amber-200 text-amber-800"
-                        : "bg-green-50 border-green-200 text-green-700"
-                    }`}
-                  >
-                    {isWindowExpired ? (
-  <div className="flex items-center justify-between gap-3">
-    <div>
-      {isWaitingReply ? (
-        <>
-          <div className="font-medium">
-            Template sent. Waiting for customer reply.
-          </div>
-          <div className="text-xs mt-1">
-            The 24h window will reopen after the customer responds.
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="font-medium">24h window expired</div>
-          <div className="text-xs mt-1">
-            Free-form reply is disabled. Please send an approved template.
-          </div>
-        </>
-      )}
-    </div>
+                   className={`rounded-lg border px-3 py-2 text-sm ${
+                     isWindowExpired
+                       ? "bg-amber-50 border-amber-200 text-amber-800"
+                       : "bg-green-50 border-green-200 text-green-700"
+  }`}
+>
+  {isWindowExpired ? (
+    <div className="flex items-center justify-between gap-3">
+      <div>
+        {isWaitingReply ? (
+          <>
+            <div className="font-medium">
+              Template sent. Waiting for customer reply.
+            </div>
+            <div className="text-xs mt-1">
+              The 24h window will reopen after the customer responds.
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="font-medium">24h window expired</div>
+            <div className="text-xs mt-1">
+              Free-form reply is disabled. Please send an approved template.
+            </div>
+          </>
+        )}
+      </div>
 
-    {!isWaitingReply ? (
+      {!isWaitingReply ? (
+        <button
+          type="button"
+          onClick={openTemplatePicker}
+          className="shrink-0 rounded border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+        >
+          Choose Template
+        </button>
+      ) : null}
+    </div>
+  ) : (
+    <div className="flex items-center justify-between gap-3">
+      <div>
+        <div className="font-medium">24h window active</div>
+        <div className="text-xs mt-1">
+          {conversationWindow.expiresAt
+            ? `Free-form reply available · ${formatRemainingWindow(
+                conversationWindow.expiresAt
+              )}`
+            : "Free-form reply available"}
+        </div>
+      </div>
       <button
         type="button"
         onClick={openTemplatePicker}
-        className="shrink-0 rounded bg-amber-600 px-3 py-2 text-xs font-medium text-white hover:bg-amber-700"
+        className="shrink-0 rounded border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
       >
         Choose Template
       </button>
-    ) : null}
-  </div>
-) : (
-        <>
-          <div className="font-medium">24h window expired</div>
-          <div className="text-xs mt-1">
-            Free-form reply is disabled. Please send an approved template.
-          </div>
-        </>
-      )}
     </div>
-
-    {/* 👇 关键：只有非 waiting 才显示按钮 */}
-    {!isWaitingReply ? (
-      <button
-        type="button"
-        onClick={openTemplatePicker}
-        className="shrink-0 rounded bg-amber-600 px-3 py-2 text-xs font-medium text-white hover:bg-amber-700"
-      >
-        Choose Template
-      </button>
-    ) : null}
-  </div>
-) : (
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="font-medium">24h window active</div>
-                          <div className="text-xs mt-1">
-                            {conversationWindow.expiresAt
-                              ? `Free-form reply available · ${formatRemainingWindow(
-                                  conversationWindow.expiresAt
-                                )}`
-                              : "Free-form reply available"}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={openTemplatePicker}
-                          className="shrink-0 rounded border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                        >
-                          Choose Template
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  {selectedFile ? (
+  )}
+</div>
                     <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
                       <div className="min-w-0">
                         <div className="text-sm font-medium truncate">
