@@ -14,6 +14,10 @@ const SOCKET_BASE =
 
 console.log("API_BASE =", API_BASE);
 
+function cn(...classes) {
+  return classes.filter(Boolean).join(" ");
+}
+
 function sameId(a, b) {
   return String(a ?? "").trim() === String(b ?? "").trim();
 }
@@ -42,23 +46,6 @@ function getMediaKind(media = {}) {
   if (mime.startsWith("video/")) return "video";
   if (mime.startsWith("audio/")) return "audio";
   return "file";
-}
-function getTemplateWaitingState(messages = []) {
-  if (!Array.isArray(messages) || messages.length === 0) return false;
-
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-
-    if (msg.direction === "outbound" && msg.message_type === "template") {
-      const hasReplyAfter = messages.slice(i + 1).some(
-        (m) => m.direction === "inbound"
-      );
-
-      return !hasReplyAfter;
-    }
-  }
-
-  return false;
 }
 
 function getMediaFileName(media = {}) {
@@ -702,8 +689,6 @@ export default function App() {
 
   const isWindowExpired = !conversationWindow.isOpen;
 
-  const isWaitingReply = getTemplateWaitingState(messages);
-
   const latestFailedMessage = useMemo(() => {
     return (
       [...messages]
@@ -772,9 +757,6 @@ export default function App() {
     setPreviewImageUrl("");
     setPreviewImageName("");
     setSelectedFile(null);
-    setPredictedFallback(false);
-    setMediaSendStage("idle");
-    setRetryingMessageId(null);
     setPredictedFallback(false);
     setMediaSendStage("idle");
     setRetryingMessageId(null);
@@ -1037,9 +1019,11 @@ export default function App() {
           normalized = normalized.filter((c) => !c.assigned_to);
         } else if (scope === "failed") {
           normalized = normalized.filter((c) => Number(c.failed_count) > 0);
-        } else if (scope === "mine" && user?.id) {
+        } else if (scope === "mine") {
           normalized = normalized.filter(
-            (c) => String(c.assigned_to || "") === String(user.id)
+            (c) =>
+              String(c.assigned_to || "") === String(user?.id ?? "") ||
+              String(c.assigned_to || "") === String(user?.username ?? "")
           );
         }
 
@@ -2106,7 +2090,6 @@ export default function App() {
     "Unknown";
 
   const customerPhone = customerDetail?.phone || selectedConversation?.phone || "-";
-  const customerNotesText = customerDetail?.notes || "";
   const templateDepartment = useMemo(() => {
   const role = String(user?.role || "").toLowerCase();
 
@@ -2268,7 +2251,8 @@ async function sendTemplateMessage() {
   }
 
   return (
-    <div className="h-screen bg-gray-100 text-gray-900">
+    <>
+      <div className="h-screen bg-gray-100 text-gray-900">
       <div className="h-full flex flex-col">
         <div className="px-4 py-3 border-b bg-white flex items-center justify-between">
           <div>
@@ -2304,6 +2288,14 @@ async function sendTemplateMessage() {
               Change Password
             </button>
 
+            <button
+              onClick={() => setShowRightPanel((prev) => !prev)}
+              className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
+              type="button"
+            >
+              {showRightPanel ? "Hide Details" : "Show Details"}
+            </button>
+
             <div className={`px-3 py-2 rounded text-sm ${systemHealthClass}`}>
               {systemHealthLabel}
             </div>
@@ -2331,7 +2323,7 @@ async function sendTemplateMessage() {
         ) : null}
 
         <div className="flex-1 min-h-0 flex">
-          <div className="w-[360px] bg-white border-r flex flex-col min-h-0">
+          <div className="w-[280px] bg-white border-r flex flex-col min-h-0">
             <div className="p-3 border-b">
               <input
                 type="text"
@@ -2573,7 +2565,10 @@ async function sendTemplateMessage() {
                               isOutbound ? "justify-end" : "justify-start"
                             }`}
                           >
-                            <div className="max-w-[78%] min-w-0">
+                            <div className={isOutbound 
+  ? "w-fit max-w-[85%] min-w-0" 
+  : "w-fit max-w-[75%] min-w-0"
+}>
                               <div
                                 className={`${bubbleBase} px-4 py-3 shadow-sm overflow-hidden`}
                               >
@@ -2757,18 +2752,7 @@ async function sendTemplateMessage() {
                         : "bg-green-50 border-green-200 text-green-700"
                     }`}
                   >
-                    {isWaitingReply ? (
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="font-medium">
-                            Template sent. Waiting for customer reply.
-                          </div>
-                          <div className="text-xs mt-1">
-                            The 24h window will reopen after the customer responds.
-                          </div>
-                        </div>
-                      </div>
-                    ) : isWindowExpired ? (
+                    {isWindowExpired ? (
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <div className="font-medium">24h window expired</div>
@@ -2779,7 +2763,7 @@ async function sendTemplateMessage() {
                         <button
                           type="button"
                           onClick={openTemplatePicker}
-                          className="shrink-0 rounded border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                          className="shrink-0 rounded bg-amber-600 px-3 py-2 text-xs font-medium text-white hover:bg-amber-700"
                         >
                           Choose Template
                         </button>
@@ -2796,18 +2780,24 @@ async function sendTemplateMessage() {
                               : "Free-form reply available"}
                           </div>
                         </div>
+                        <button
+                          type="button"
+                          onClick={openTemplatePicker}
+                          className="shrink-0 rounded border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                        >
+                          Choose Template
+                        </button>
                       </div>
                     )}
                   </div>
-
                   {selectedFile ? (
                     <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
                       <div className="min-w-0">
                         <div className="text-sm font-medium truncate">
-                          {selectedFile?.name || ""}
+                          {selectedFile.name}
                         </div>
                         <div className="text-xs text-gray-500">
-                          {(Number(selectedFile?.size || 0) / 1024 / 1024).toFixed(2)} MB
+                          {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
                         </div>
                       </div>
 
@@ -2909,202 +2899,196 @@ async function sendTemplateMessage() {
           </div>
 
           {showRightPanel ? (
-            <div className="w-[300px] bg-white border-l flex flex-col min-h-0">
-              {selectedConversation ? (
-                <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                  <div>
-                    <div className="text-lg font-semibold">
-                      {loadingCustomer ? "Loading..." : customerDisplayName}
-                    </div>
-                    <div className="text-sm text-gray-500 mt-1">{customerPhone}</div>
-                    <div className="text-sm text-gray-500 mt-1">
-                      Status: {selectedConversation.status}
-                    </div>
-                    <div className="text-sm text-gray-500 mt-1">
-                      Last message: {formatDateTime(selectedConversation.last_message_at)}
-                    </div>
+          <div className="w-[300px] bg-white border-l flex flex-col min-h-0">
+            {selectedConversation ? (
+              <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                <div>
+                  <div className="text-lg font-semibold">
+                    {loadingCustomer ? "Loading..." : customerDisplayName}
+                  </div>
+                  <div className="text-sm text-gray-500 mt-1">{customerPhone}</div>
+                  <div className="text-sm text-gray-500 mt-1">
+                    Status: {selectedConversation.status}
+                  </div>
+                  <div className="text-sm text-gray-500 mt-1">
+                    Last message: {formatDateTime(selectedConversation.last_message_at)}
+                  </div>
+                </div>
+
+                <div className="border-t pt-4">
+                  <div className="text-sm font-semibold mb-2">Assigned To</div>
+
+                  <div className="flex gap-2">
+                    <select
+                      className="flex-1 border rounded px-3 py-2 text-sm bg-white"
+                      value={assignInput}
+                      onChange={(e) => setAssignInput(e.target.value)}
+                    >
+                      <option value="">Unassigned</option>
+                      {assignableUsers.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      onClick={assignConversation}
+                      disabled={savingAssignment}
+                      className="px-3 py-2 rounded bg-gray-900 text-white text-sm disabled:opacity-50"
+                      type="button"
+                    >
+                      {savingAssignment ? "Saving..." : "Assign"}
+                    </button>
                   </div>
 
-                  <div className="border-t pt-4">
-                    <div className="text-sm font-semibold mb-2">Assigned To</div>
+                  <div className="mt-2 text-xs text-gray-500">
+                    Current: {selectedConversation.assigned_username || "Unassigned"}
+                  </div>
+                </div>
 
-                    <div className="flex gap-2">
-                      <select
-                        className="flex-1 border rounded px-3 py-2 text-sm bg-white"
-                        value={assignInput}
-                        onChange={(e) => setAssignInput(e.target.value)}
-                      >
-                        <option value="">Unassigned</option>
-                        {assignableUsers.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.label}
-                          </option>
-                        ))}
-                      </select>
+                <div className="border-t pt-4">
+                  <div className="text-sm font-semibold mb-2">Tags</div>
 
-                      <button
-                        onClick={assignConversation}
-                        disabled={savingAssignment}
-                        className="px-3 py-2 rounded bg-gray-900 text-white text-sm disabled:opacity-50"
-                        type="button"
-                      >
-                        {savingAssignment ? "Saving..." : "Assign"}
-                      </button>
-                    </div>
-
-                    <div className="mt-2 text-xs text-gray-500">
-                      Current: {selectedConversation.assigned_username || "Unassigned"}
-                    </div>
+                  <div className="flex items-start gap-2 mb-3">
+                    <input
+                      className="flex-1 border rounded px-3 py-2 text-sm"
+                      placeholder="Add tag..."
+                      value={newTag}
+                      onChange={(e) => setNewTag(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") addTag();
+                      }}
+                    />
+                    <button
+                      onClick={addTag}
+                      disabled={savingTag}
+                      className="px-3 py-2 rounded bg-gray-900 text-white text-sm disabled:opacity-50"
+                      type="button"
+                    >
+                      {savingTag ? "Adding..." : "Add"}
+                    </button>
                   </div>
 
-                  <div className="border-t pt-4">
-                    <div className="text-sm font-semibold mb-2">Tags</div>
+                  {loadingTags ? (
+                    <div className="text-sm text-gray-500">Loading tags...</div>
+                  ) : customerTags.length === 0 ? (
+                    <div className="text-sm text-gray-500">No tags</div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {customerTags.map((tag, idx) => {
+                        const tagText =
+                          typeof tag === "string"
+                            ? tag
+                            : tag.name ?? tag.tag ?? tag.label ?? `tag-${idx}`;
 
-                    <div className="flex items-start gap-2 mb-3">
-                      <input
-                        className="flex-1 border rounded px-3 py-2 text-sm"
-                        placeholder="Add tag..."
-                        value={newTag}
-                        onChange={(e) => setNewTag(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") addTag();
-                        }}
-                      />
-                      <button
-                        onClick={addTag}
-                        disabled={savingTag}
-                        className="px-3 py-2 rounded bg-gray-900 text-white text-sm disabled:opacity-50"
-                        type="button"
-                      >
-                        {savingTag ? "Adding..." : "Add"}
-                      </button>
-                    </div>
-
-                    {loadingTags ? (
-                      <div className="text-sm text-gray-500">Loading tags...</div>
-                    ) : customerTags.length === 0 ? (
-                      <div className="text-sm text-gray-500">No tags</div>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {customerTags.map((tag, idx) => {
-                          const tagText =
-                            typeof tag === "string"
-                              ? tag
-                              : tag.name ?? tag.tag ?? tag.label ?? `tag-${idx}`;
-
-                          return (
-                            <div
-                              key={`${tagText}-${idx}`}
-                              className="flex items-center gap-2 px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-xs"
+                        return (
+                          <div
+                            key={`${tagText}-${idx}`}
+                            className="flex items-center gap-2 px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-xs"
+                          >
+                            <span>{tagText}</span>
+                            <button
+                              onClick={() => removeTag(tagText)}
+                              className="font-bold hover:text-red-600"
+                              type="button"
                             >
-                              <span>{tagText}</span>
-                              <button
-                                onClick={() => removeTag(tagText)}
-                                className="font-bold hover:text-red-600"
-                                type="button"
-                              >
-                                ×
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                              ×
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+               
+                <div className="border-t pt-4">
+                  <div className="text-sm font-semibold mb-2">Handling Log</div>
+
+                  <div className="flex items-start gap-2 mb-3">
+                    <textarea
+                      className="flex-1 border rounded p-2 text-sm"
+                      rows={3}
+                      placeholder="Add handling update, decision, or follow-up..."
+                      value={noteInput}
+                      onChange={(e) => setNoteInput(e.target.value)}
+                    />
+
+                    <button
+                      onClick={addNote}
+                      disabled={savingNote || !selectedCustomerId || !noteInput.trim()}
+                      className="px-3 py-2 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
+                      type="button"
+                    >
+                      {savingNote ? "Saving..." : "Add"}
+                    </button>
                   </div>
 
-                  <div className="border-t pt-4">
-                    <div className="text-sm font-semibold mb-2">Customer Notes</div>
-                    <div className="text-sm text-gray-700 whitespace-pre-wrap rounded border bg-gray-50 p-3 min-h-[80px]">
-                      {customerNotesText || "No customer notes."}
+                  {loadingNotes ? (
+                    <div className="text-sm text-gray-500">
+                      Loading handling log...
                     </div>
-                  </div>
-
-                  <div className="border-t pt-4">
-                    <div className="text-sm font-semibold mb-2">Handling Log</div>
-
-                    <div className="flex items-start gap-2 mb-3">
-                      <textarea
-                        className="flex-1 border rounded p-2 text-sm"
-                        rows={3}
-                        placeholder="Add handling update, decision, or follow-up..."
-                        value={noteInput}
-                        onChange={(e) => setNoteInput(e.target.value)}
-                      />
-
-                      <button
-                        onClick={addNote}
-                        disabled={savingNote || !selectedCustomerId || !noteInput.trim()}
-                        className="px-3 py-2 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
-                        type="button"
-                      >
-                        {savingNote ? "Saving..." : "Add"}
-                      </button>
+                  ) : notes.length === 0 ? (
+                    <div className="text-sm text-gray-500">
+                      No handling updates yet.
                     </div>
-
-                    {loadingNotes ? (
-                      <div className="text-sm text-gray-500">
-                        Loading handling log...
-                      </div>
-                    ) : notes.length === 0 ? (
-                      <div className="text-sm text-gray-500">
-                        No handling updates yet.
-                      </div>
-                    ) : (
-                      <div className="space-y-3 max-h-[380px] overflow-y-auto">
-                        {notes
-                          .slice()
-                          .sort(
-                            (a, b) =>
-                              new Date(b.created_at || 0).getTime() -
-                              new Date(a.created_at || 0).getTime()
-                          )
-                          .map((n) => (
-                            <div
-                              key={n.id}
-                              className="border rounded-lg p-3 bg-white shadow-sm"
-                            >
-                              <div className="flex justify-between items-start gap-3 mb-2">
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex justify-between text-xs text-gray-500">
-                                    <span className="font-medium text-gray-700">
-                                      {n.created_by || "Bruce"}
-                                    </span>
-                                    <span>{formatMessageTime(n.created_at)}</span>
-                                  </div>
-
-                                  <div className="mt-2">
-                                    <span className="text-[11px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                                      Handling
-                                    </span>
-                                  </div>
+                  ) : (
+                    <div className="space-y-3 max-h-[380px] overflow-y-auto">
+                      {notes
+                        .slice()
+                        .sort(
+                          (a, b) =>
+                            new Date(b.created_at || 0).getTime() -
+                            new Date(a.created_at || 0).getTime()
+                        )
+                        .map((n) => (
+                          <div
+                            key={n.id}
+                            className="border rounded-lg p-3 bg-white shadow-sm"
+                          >
+                            <div className="flex justify-between items-start gap-3 mb-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex justify-between text-xs text-gray-500">
+                                  <span className="font-medium text-gray-700">
+                                    {n.created_by || "Bruce"}
+                                  </span>
+                                  <span>{formatMessageTime(n.created_at)}</span>
                                 </div>
 
-                                <button
-                                  onClick={() => deleteNote(n.id)}
-                                  className="text-xs text-gray-400 hover:text-red-600 px-2 py-1"
-                                  type="button"
-                                >
-                                  Delete
-                                </button>
+                                <div className="mt-2">
+                                  <span className="text-[11px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                                    Handling
+                                  </span>
+                                </div>
                               </div>
 
-                              <div className="text-sm whitespace-pre-wrap break-words">
-                                {n.content || n.note || ""}
-                              </div>
+                              <button
+                                onClick={() => deleteNote(n.id)}
+                                className="text-xs text-gray-400 hover:text-red-600 px-2 py-1"
+                                type="button"
+                              >
+                                Delete
+                              </button>
                             </div>
-                          ))}
-                      </div>
-                    )}
-                  </div>
+
+                            <div className="text-sm whitespace-pre-wrap break-words">
+                              {n.content || n.note || ""}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div className="flex-1 flex items-center justify-center text-gray-500">
-                  Customer details
-                </div>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-gray-500">
+                Customer details
+              </div>
+            )}
+          </div>
           ) : null}
         </div>
+      </div>
       </div>
 
       {showTemplatePicker && (
@@ -3392,6 +3376,6 @@ async function sendTemplateMessage() {
           </div>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }
