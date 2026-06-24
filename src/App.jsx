@@ -1,3 +1,4 @@
+import PortalPage from "./pages/portal/PortalPage";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { io } from "socket.io-client";
@@ -577,6 +578,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
 
+  const [activeModule, setActiveModule] = useState("crm");
   const [apiConnected, setApiConnected] = useState(true);
   const [apiStatus, setApiStatus] = useState("unknown");
   const [socketStatus, setSocketStatus] = useState("unknown");
@@ -2299,7 +2301,25 @@ async function sendTemplateMessage() {
             <div className={`px-3 py-2 rounded text-sm ${systemHealthClass}`}>
               {systemHealthLabel}
             </div>
+            <button
+  onClick={() => setActiveModule("crm")}
+  className={`px-3 py-2 rounded border text-sm ${
+    activeModule === "crm" ? "bg-black text-white" : "bg-white hover:bg-gray-50"
+  }`}
+  type="button"
+>
+  CRM
+</button>
 
+<button
+  onClick={() => setActiveModule("portal")}
+  className={`px-3 py-2 rounded border text-sm ${
+    activeModule === "portal" ? "bg-black text-white" : "bg-white hover:bg-gray-50"
+  }`}
+  type="button"
+>
+  Portal
+</button>
             <button
               onClick={handleLogout}
               className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
@@ -2317,12 +2337,17 @@ async function sendTemplateMessage() {
         ) : null}
 
         {errorBanner ? (
-          <div className="px-4 py-2 text-sm bg-red-50 border-b border-red-200 text-red-700">
-            {errorBanner}
-          </div>
-        ) : null}
+  <div className="px-4 py-2 text-sm bg-red-50 border-b border-red-200 text-red-700">
+    {errorBanner}
+  </div>
+) : null}
 
-        <div className="flex-1 min-h-0 flex">
+{activeModule === "portal" ? (
+  <div className="flex-1 min-h-0">
+    <PortalPage />
+  </div>
+) : (
+  <div className="flex-1 min-h-0 flex">
           <div className="w-[280px] bg-white border-r flex flex-col min-h-0">
             <div className="p-3 border-b">
               <input
@@ -3085,11 +3110,12 @@ async function sendTemplateMessage() {
                 Customer details
               </div>
             )}
-          </div>
+           </div>
           ) : null}
         </div>
+)}
       </div>
-      </div>
+    </div>
 
       {showTemplatePicker && (
   <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
