@@ -1,7 +1,8 @@
 import axios from "axios";
 
-const DEALER_API_BASE =
-  import.meta.env.VITE_DEALER_API_BASE_URL || "http://localhost:3000/api";
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  "https://voltgo-whatsapp-support-production.up.railway.app/api";
 
 function authHeaders() {
   const token = localStorage.getItem("token");
