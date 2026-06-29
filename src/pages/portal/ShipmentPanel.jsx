@@ -2,7 +2,9 @@ import DocumentPage from "./DocumentPage";
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 
-const API_BASE = "http://localhost:3000/api";
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ||
+  "https://voltgo-whatsapp-support-production.up.railway.app/api";
 
 const cardClass = "rounded-xl border bg-white p-5";
 const cardTitleClass = "text-lg font-semibold mb-4 pb-3 border-b";
