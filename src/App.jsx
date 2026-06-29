@@ -1,4 +1,7 @@
+import AppHeader from "./layout/AppHeader";
+import LoginScreen from "./pages/auth/LoginScreen";
 import PortalPage from "./pages/portal/PortalPage";
+import DealerDashboard from "./pages/dealer/DealerDashboard";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { io } from "socket.io-client";
@@ -494,84 +497,6 @@ function renderTemplatePreview(template, params) {
   }
 
   return text;
-}
-function LoginScreen({ onLoginSuccess }) {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [errorText, setErrorText] = useState("");
-
-  const handleLogin = async (e) => {
-    e.preventDefault();
-
-    try {
-      setLoading(true);
-      setErrorText("");
-
-      const res = await axios.post(`${API_BASE}/auth/login`, {
-        username: username.trim(),
-        password,
-      });
-
-      if (!res.data?.success || !res.data?.token || !res.data?.user) {
-        throw new Error("Invalid login response");
-      }
-
-      localStorage.setItem("token", res.data.token);
-      localStorage.setItem("crm_user", JSON.stringify(res.data.user));
-
-      onLoginSuccess(res.data.user);
-    } catch (err) {
-      setErrorText(
-        err?.response?.data?.message || err?.message || "Login failed"
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
-      <div className="w-full max-w-md rounded-3xl bg-white shadow-lg p-8">
-        <div className="text-3xl font-bold text-center">Voltgo WhatsApp CRM</div>
-        <div className="text-center text-gray-500 mt-3">
-          Please sign in to continue
-        </div>
-
-        <form onSubmit={handleLogin} className="mt-8 space-y-5">
-          <input
-            type="text"
-            placeholder="Username"
-            className="w-full rounded-2xl border px-5 py-4 text-lg outline-none focus:ring-2 focus:ring-gray-300"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
-          />
-
-          <input
-            type="password"
-            placeholder="Password"
-            className="w-full rounded-2xl border px-5 py-4 text-lg outline-none focus:ring-2 focus:ring-gray-300"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-          />
-
-          {errorText ? (
-            <div className="text-sm text-red-600">{errorText}</div>
-          ) : null}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-2xl bg-black text-white py-4 text-xl font-semibold disabled:opacity-60"
-          >
-            {loading ? "Logging in..." : "Login"}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
 }
 
 export default function App() {
@@ -2256,79 +2181,20 @@ async function sendTemplateMessage() {
     <>
       <div className="h-screen bg-gray-100 text-gray-900">
       <div className="h-full flex flex-col">
-        <div className="px-4 py-3 border-b bg-white flex items-center justify-between">
-          <div>
-            <div className="text-xl font-bold">WhatsApp CRM</div>
-            <div className="text-sm text-gray-500">
-              Voltgo support console · React + Tailwind + Axios MVP
-            </div>
-            <div className="text-xs text-gray-400 mt-1">
-              Logged in as {user?.username}
-            </div>
-            <div className="text-xs text-gray-400 mt-1">
-              Last sync:{" "}
-              {lastSuccessfulSyncAt
-                ? formatDateTime(lastSuccessfulSyncAt)
-                : "No sync yet"}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => loadConversations()}
-              className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
-              type="button"
-            >
-              Refresh
-            </button>
-
-            <button
-              onClick={() => setShowChangePassword(true)}
-              className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
-              type="button"
-            >
-              Change Password
-            </button>
-
-            <button
-              onClick={() => setShowRightPanel((prev) => !prev)}
-              className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
-              type="button"
-            >
-              {showRightPanel ? "Hide Details" : "Show Details"}
-            </button>
-
-            <div className={`px-3 py-2 rounded text-sm ${systemHealthClass}`}>
-              {systemHealthLabel}
-            </div>
-            <button
-  onClick={() => setActiveModule("crm")}
-  className={`px-3 py-2 rounded border text-sm ${
-    activeModule === "crm" ? "bg-black text-white" : "bg-white hover:bg-gray-50"
-  }`}
-  type="button"
->
-  CRM
-</button>
-
-<button
-  onClick={() => setActiveModule("portal")}
-  className={`px-3 py-2 rounded border text-sm ${
-    activeModule === "portal" ? "bg-black text-white" : "bg-white hover:bg-gray-50"
-  }`}
-  type="button"
->
-  Portal
-</button>
-            <button
-              onClick={handleLogout}
-              className="px-3 py-2 rounded border bg-white hover:bg-gray-50 text-sm"
-              type="button"
-            >
-              Logout
-            </button>
-          </div>
-        </div>
+        <AppHeader
+  user={user}
+  lastSuccessfulSyncAt={lastSuccessfulSyncAt}
+  formatDateTime={formatDateTime}
+  loadConversations={loadConversations}
+  setShowChangePassword={setShowChangePassword}
+  showRightPanel={showRightPanel}
+  setShowRightPanel={setShowRightPanel}
+  systemHealthClass={systemHealthClass}
+  systemHealthLabel={systemHealthLabel}
+  activeModule={activeModule}
+  setActiveModule={setActiveModule}
+  handleLogout={handleLogout}
+/>
 
         {warningBanner ? (
           <div className="px-4 py-2 text-sm bg-yellow-50 border-b border-yellow-200 text-yellow-800">
@@ -2345,6 +2211,10 @@ async function sendTemplateMessage() {
 {activeModule === "portal" ? (
   <div className="flex-1 min-h-0">
     <PortalPage />
+  </div>
+) : activeModule === "dealer" ? (
+  <div className="flex-1 min-h-0 overflow-auto">
+    <DealerDashboard />
   </div>
 ) : (
   <div className="flex-1 min-h-0 flex">

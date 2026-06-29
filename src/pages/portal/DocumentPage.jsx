@@ -4,18 +4,58 @@ import axios from "axios";
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api";
 
-export default function DocumentPage() {
+function getDefaultCategory(relatedType) {
+  if (relatedType === "shipment") return "commercial_invoice";
+  return "payment_proof";
+}
+
+function getCategoryOptions(relatedType) {
+  if (relatedType === "shipment") {
+    return [
+      { value: "commercial_invoice", label: "Commercial Invoice" },
+      { value: "packing_list", label: "Packing List" },
+      { value: "bill_of_lading", label: "Bill of Lading" },
+      { value: "arrival_notice", label: "Arrival Notice" },
+      { value: "proof_of_delivery", label: "Proof of Delivery" },
+      { value: "inspection_photo", label: "Inspection Photo" },
+      { value: "other", label: "Other" },
+    ];
+  }
+
+  return [
+    { value: "payment_proof", label: "Payment Proof" },
+    { value: "invoice", label: "Invoice" },
+    { value: "shipping", label: "Shipping Document" },
+    { value: "test_report", label: "Test Report" },
+    { value: "warranty", label: "Warranty" },
+    { value: "customer_photo", label: "Customer Photo" },
+    { value: "other", label: "Other" },
+  ];
+}
+
+export default function DocumentPage({
+  relatedType = "",
+  relatedId = "",
+  compact = false,
+}) {
   const [documents, setDocuments] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [openingId, setOpeningId] = useState(null);
   const [form, setForm] = useState({
     title: "",
-    category: "payment_proof",
+    category: getDefaultCategory(relatedType),
     file: null,
   });
 
+  const categoryOptions = getCategoryOptions(relatedType);
+
   async function loadDocuments() {
-    const res = await axios.get(`${API_BASE}/portal/documents`);
+    const params = {};
+
+    if (relatedType) params.related_type = relatedType;
+    if (relatedId) params.related_id = relatedId;
+
+    const res = await axios.get(`${API_BASE}/portal/documents`, { params });
     setDocuments(Array.isArray(res.data) ? res.data : []);
   }
 
@@ -35,13 +75,23 @@ export default function DocumentPage() {
       formData.append("title", form.title || form.file.name);
       formData.append("category", form.category);
 
+      if (relatedType) {
+        formData.append("related_type", relatedType);
+      }
+
+      if (relatedId) {
+        formData.append("related_id", relatedId);
+      }
+
       await axios.post(`${API_BASE}/portal/documents`, formData);
 
       setForm({
         title: "",
-        category: "payment_proof",
+        category: getDefaultCategory(relatedType),
         file: null,
       });
+
+      e.target.reset();
 
       await loadDocuments();
     } catch (err) {
@@ -72,78 +122,94 @@ export default function DocumentPage() {
   }
 
   useEffect(() => {
+    setForm((prev) => ({
+      ...prev,
+      category: getDefaultCategory(relatedType),
+    }));
+
     loadDocuments();
-  }, []);
+  }, [relatedType, relatedId]);
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <div className="text-2xl font-bold">Documents</div>
-        <div className="text-sm text-gray-500">
-          Upload and archive payment, shipment, invoice, and warranty files.
+    return (
+    <div className={compact ? "space-y-4" : "space-y-6"}>
+      {!compact && (
+        <div>
+          <div className="text-2xl font-bold">Evidence</div>
+          <div className="text-sm text-gray-500">
+            Store official evidence for future reference.
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="bg-white rounded-2xl border shadow-sm p-6">
-        <div className="text-lg font-semibold mb-4">Upload Document</div>
-
-        <form onSubmit={uploadDocument} className="space-y-4 max-w-3xl">
-          <div>
-            <label className="block text-sm text-gray-500 mb-1">Title</label>
-            <input
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-              className="w-full border rounded-lg px-3 py-2 text-sm"
-              placeholder="Document title"
-            />
+      {compact && (
+        <div className="bg-white rounded-2xl border shadow-sm p-5">
+          <div className="text-lg font-semibold mb-4">
+            {relatedType === "shipment"
+              ? "Upload Shipment Evidence"
+              : "Upload Evidence"}
           </div>
 
-          <div>
-            <label className="block text-sm text-gray-500 mb-1">Category</label>
-            <select
-              value={form.category}
-              onChange={(e) => setForm({ ...form, category: e.target.value })}
-              className="w-full border rounded-lg px-3 py-2 text-sm"
-            >
-              <option value="payment_proof">Payment Proof</option>
-              <option value="invoice">Invoice</option>
-              <option value="shipping">Shipping Document</option>
-              <option value="test_report">Test Report</option>
-              <option value="warranty">Warranty</option>
-              <option value="customer_photo">Customer Photo</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm text-gray-500 mb-1">File</label>
-            <input
-              type="file"
-              onChange={(e) =>
-                setForm({ ...form, file: e.target.files?.[0] || null })
-              }
-              className="w-full border rounded-lg px-3 py-2 text-sm"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={uploading}
-            className="px-5 py-2 rounded-lg bg-gray-900 text-white text-sm disabled:opacity-50"
+          <form
+            onSubmit={uploadDocument}
+            className="grid grid-cols-4 gap-3 items-end"
           >
-            {uploading ? "Uploading..." : "Upload"}
-          </button>
-        </form>
-      </div>
+            <div>
+              <label className="block text-sm text-gray-500 mb-1">Title</label>
+              <input
+                value={form.title}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+                placeholder="Evidence title"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm text-gray-500 mb-1">
+                Evidence Type
+              </label>
+              <select
+                value={form.category}
+                onChange={(e) => setForm({ ...form, category: e.target.value })}
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+              >
+                {categoryOptions.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm text-gray-500 mb-1">File</label>
+              <input
+                type="file"
+                onChange={(e) =>
+                  setForm({ ...form, file: e.target.files?.[0] || null })
+                }
+                className="w-full border rounded-lg px-3 py-2 text-sm"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={uploading}
+              className="px-5 py-2 rounded-lg bg-gray-900 text-white text-sm disabled:opacity-50"
+            >
+              {uploading ? "Uploading..." : "Upload Evidence"}
+            </button>
+          </form>
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b font-semibold">Document List</div>
+        <div className="px-5 py-4 border-b font-semibold">Evidence</div>
 
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-gray-500">
             <tr>
               <th className="text-left px-5 py-3">Title</th>
-              <th className="text-left px-5 py-3">Category</th>
+              <th className="text-left px-5 py-3">Evidence Type</th>
               <th className="text-left px-5 py-3">File Name</th>
               <th className="text-left px-5 py-3">Date</th>
               <th className="text-left px-5 py-3">Action</th>
@@ -175,7 +241,7 @@ export default function DocumentPage() {
             {documents.length === 0 && (
               <tr>
                 <td className="px-5 py-6 text-gray-500" colSpan="5">
-                  No documents yet.
+                  No evidence uploaded.
                 </td>
               </tr>
             )}
