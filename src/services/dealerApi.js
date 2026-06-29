@@ -17,11 +17,11 @@ function authHeaders() {
 export async function getDealerDashboard(id = 1) {
   console.log(
     "Dealer URL:",
-    `${DEALER_API_BASE}/dealers/${id}/dashboard`
+    `${API_BASE}/dealers/${id}/dashboard`
   );
 
   const { data } = await axios.get(
-    `${DEALER_API_BASE}/dealers/${id}/dashboard`,
+    `${API_BASE}/dealers/${id}/dashboard`,
     {
       headers: authHeaders(),
     }
@@ -31,7 +31,7 @@ export async function getDealerDashboard(id = 1) {
 }
 
 export async function getDealers() {
-  const { data } = await axios.get(`${DEALER_API_BASE}/dealers`, {
+  const { data } = await axios.get(`${API_BASE}/dealers`, {
     headers: authHeaders(),
   });
 
