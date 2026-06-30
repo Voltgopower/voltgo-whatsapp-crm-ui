@@ -41,6 +41,7 @@ export default function DocumentPage({
   const [documents, setDocuments] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [openingId, setOpeningId] = useState(null);
+  const [showUpload, setShowUpload] = useState(false);
   const [form, setForm] = useState({
     title: "",
     category: getDefaultCategory(relatedType),
@@ -48,6 +49,10 @@ export default function DocumentPage({
   });
 
   const categoryOptions = getCategoryOptions(relatedType);
+function getCategoryLabel(value, relatedType) {
+  const options = getCategoryOptions(relatedType);
+  return options.find((item) => item.value === value)?.label || value || "-";
+}
 
   async function loadDocuments() {
     const params = {};
@@ -141,7 +146,7 @@ export default function DocumentPage({
         </div>
       )}
 
-      {compact && (
+      {compact && showUpload && (
         <div className="bg-white rounded-2xl border shadow-sm p-5">
           <div className="text-lg font-semibold mb-4">
             {relatedType === "shipment"
@@ -203,7 +208,19 @@ export default function DocumentPage({
       )}
 
       <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b font-semibold">Evidence</div>
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+  <div className="font-semibold">Evidence</div>
+
+  {compact && (
+    <button
+      type="button"
+      onClick={() => setShowUpload((prev) => !prev)}
+      className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50 text-sm"
+    >
+      {showUpload ? "Cancel" : "+ Upload Evidence"}
+    </button>
+  )}
+</div>
 
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-gray-500">
@@ -220,7 +237,9 @@ export default function DocumentPage({
             {documents.map((d) => (
               <tr key={d.id} className="border-t">
                 <td className="px-5 py-3 font-medium">{d.title}</td>
-                <td className="px-5 py-3">{d.category}</td>
+                <td className="px-5 py-3">
+                 {getCategoryLabel(d.category, relatedType)}
+                </td>
                 <td className="px-5 py-3">{d.file_name}</td>
                 <td className="px-5 py-3">
                   {d.created_at ? d.created_at.slice(0, 10) : "-"}

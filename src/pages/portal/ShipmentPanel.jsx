@@ -1,13 +1,14 @@
-import DocumentPage from "./DocumentPage";
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+
+import ShipmentCard from "./shipment/ShipmentCard";
+import ShipmentAllocation from "./shipment/ShipmentAllocation";
+import ShipmentEvidence from "./shipment/ShipmentEvidence";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ||
   "https://voltgo-whatsapp-support-production.up.railway.app/api";
 
-const cardClass = "rounded-xl border bg-white p-5";
-const cardTitleClass = "text-lg font-semibold mb-4 pb-3 border-b";
 const inputClass = "border rounded-lg px-3 py-2 text-sm";
 const secondaryButtonClass =
   "px-4 py-2 rounded-lg border bg-white hover:bg-gray-50 text-sm";
@@ -18,8 +19,10 @@ export default function ShipmentPanel({ batchId }) {
   const [shipments, setShipments] = useState([]);
   const [openShipmentId, setOpenShipmentId] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [availableAllocations, setAvailableAllocations] = useState([]);
   const [shipmentAllocations, setShipmentAllocations] = useState({});
+  const [showAllocationForm, setShowAllocationForm] = useState({});
 
   const [form, setForm] = useState({
     shipment_no: "",
@@ -63,27 +66,38 @@ export default function ShipmentPanel({ batchId }) {
   async function createShipment(e) {
     e.preventDefault();
 
-    if (!form.shipment_no) {
+    if (saving) return;
+
+    if (!form.shipment_no.trim()) {
       alert("Shipment No is required");
       return;
     }
 
-    await axios.post(`${API_BASE}/portal/shipments`, {
-      batch_id: batchId,
-      ...form,
-    });
+    setSaving(true);
 
-    setForm({
-      shipment_no: "",
-      carrier: "",
-      tracking_no: "",
-      bol_no: "",
-      container_no: "",
-      status: "draft",
-    });
+    try {
+      await axios.post(`${API_BASE}/portal/shipments`, {
+        batch_id: batchId,
+        ...form,
+      });
 
-    setShowForm(false);
-    await loadShipments();
+      setForm({
+        shipment_no: "",
+        carrier: "",
+        tracking_no: "",
+        bol_no: "",
+        container_no: "",
+        status: "draft",
+      });
+
+      setShowForm(false);
+      await loadShipments();
+    } catch (err) {
+      console.error("Create shipment failed:", err);
+      alert("Create shipment failed");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function linkAllocation(shipmentId) {
@@ -103,14 +117,17 @@ export default function ShipmentPanel({ batchId }) {
       allocated_amount: "",
     });
 
+    setShowAllocationForm((prev) => ({
+      ...prev,
+      [shipmentId]: false,
+    }));
+
     await loadShipmentAllocations(shipmentId);
     await loadShipments();
   }
 
   async function unlinkAllocation(shipmentId, shipmentAllocationId) {
-    if (!window.confirm("Unlink this payment allocation?")) {
-      return;
-    }
+    if (!window.confirm("Unlink this payment allocation?")) return;
 
     await axios.delete(
       `${API_BASE}/portal/shipment-allocations/${shipmentAllocationId}`
@@ -137,14 +154,6 @@ export default function ShipmentPanel({ batchId }) {
     return availableAllocations.filter(
       (item) => !linkedIds.includes(Number(item.id))
     );
-  }
-
-  function formatStatus(status) {
-    if (!status) return "-";
-
-    return status
-      .replaceAll("_", " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
   useEffect(() => {
@@ -224,231 +233,53 @@ export default function ShipmentPanel({ batchId }) {
             </select>
           </div>
 
-          <button type="submit" className={`${primaryButtonClass} mt-4`}>
-            Save Shipment
+          <button
+            type="submit"
+            disabled={saving}
+            className={`${primaryButtonClass} mt-4`}
+          >
+            {saving ? "Saving..." : "Save Shipment"}
           </button>
         </form>
       )}
 
-      <div className="space-y-4 p-5">
-        {shipments.map((s) => {
-          const isOpen = openShipmentId === s.id;
+      <div className="space-y-3 p-5">
+        {shipments.map((shipment) => {
+          const isOpen = openShipmentId === shipment.id;
+          const allocations = shipmentAllocations[shipment.id] || [];
+          const linkedAmount = getShipmentAmount(shipment);
 
           return (
-            <div key={s.id} className="rounded-xl border bg-white shadow-sm">
-              <div className="flex items-start justify-between p-5">
-                <div>
-                  <div className="text-lg font-semibold">
-                    Shipment #{s.shipment_no}
-                  </div>
+            <ShipmentCard
+              key={shipment.id}
+              shipment={shipment}
+              isOpen={isOpen}
+              linkedAmount={linkedAmount}
+              onToggle={async () => {
+                const nextId = isOpen ? null : shipment.id;
+                setOpenShipmentId(nextId);
 
-                  <div className="text-sm text-gray-500 mt-1">
-                    {s.carrier || "-"} · {formatStatus(s.status)}
-                  </div>
+                if (nextId) {
+                  await loadShipmentAllocations(nextId);
+                }
+              }}
+            >
+              <div className="border-t bg-gray-50 p-4 space-y-4">
+                <ShipmentAllocation
+                  shipment={shipment}
+                  allocations={allocations}
+                  availableOptions={getAvailableOptions(shipment.id)}
+                  allocationForm={allocationForm}
+                  setAllocationForm={setAllocationForm}
+                  showAllocationForm={showAllocationForm}
+                  setShowAllocationForm={setShowAllocationForm}
+                  linkAllocation={linkAllocation}
+                  unlinkAllocation={unlinkAllocation}
+                />
 
-                  <div className="text-xs text-gray-400 mt-1">
-                    Tracking: {s.tracking_no || "-"}
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const nextId = isOpen ? null : s.id;
-                    setOpenShipmentId(nextId);
-
-                    if (nextId) {
-                      await loadShipmentAllocations(nextId);
-                    }
-                  }}
-                  className={secondaryButtonClass}
-                >
-                  {isOpen ? "Collapse" : "Expand"}
-                </button>
+                <ShipmentEvidence shipment={shipment} />
               </div>
-
-              <div className="grid grid-cols-4 gap-4 px-5 pb-5">
-                <div className="rounded-xl bg-gray-50 p-4">
-                  <div className="text-xs text-gray-500">Carrier</div>
-                  <div className="font-semibold mt-1">{s.carrier || "-"}</div>
-                </div>
-
-                <div className="rounded-xl bg-gray-50 p-4">
-                  <div className="text-xs text-gray-500">Tracking</div>
-                  <div className="font-semibold mt-1">
-                    {s.tracking_no || "-"}
-                  </div>
-                </div>
-
-                <div className="rounded-xl bg-gray-50 p-4">
-                  <div className="text-xs text-gray-500">Linked Payment</div>
-                  <div className="font-semibold mt-1">
-                    {s.linked_payment || "-"}
-                  </div>
-                </div>
-
-                <div className="rounded-xl bg-gray-50 p-4">
-                  <div className="text-xs text-gray-500">Linked Amount</div>
-                  <div className="font-semibold mt-1">
-                    ${getShipmentAmount(s)}
-                  </div>
-                </div>
-              </div>
-
-              {isOpen && (
-                <div className="border-t bg-gray-50 p-5">
-                  <div className="space-y-5">
-                    <div className={cardClass}>
-                      <div className={cardTitleClass}>
-                        Shipment Information
-                      </div>
-
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-                        <div>
-                          <div className="text-gray-500">Shipment No</div>
-                          <div className="font-medium">
-                            {s.shipment_no || "-"}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="text-gray-500">Carrier</div>
-                          <div className="font-medium">{s.carrier || "-"}</div>
-                        </div>
-
-                        <div>
-                          <div className="text-gray-500">Tracking No</div>
-                          <div className="font-medium">
-                            {s.tracking_no || "-"}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="text-gray-500">B/L No</div>
-                          <div className="font-medium">{s.bol_no || "-"}</div>
-                        </div>
-
-                        <div>
-                          <div className="text-gray-500">Container No</div>
-                          <div className="font-medium">
-                            {s.container_no || "-"}
-                          </div>
-                        </div>
-
-                        <div>
-                          <div className="text-gray-500">Status</div>
-                          <div className="font-medium">
-                            {formatStatus(s.status)}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className={cardClass}>
-                      <div className={cardTitleClass}>
-                        Linked Payment Allocations
-                      </div>
-
-                      <div className="flex items-end gap-3 mb-4">
-                        <select
-                          value={allocationForm.allocation_id}
-                          onChange={(e) =>
-                            setAllocationForm({
-                              ...allocationForm,
-                              allocation_id: e.target.value,
-                            })
-                          }
-                          className="flex-1 border rounded-lg px-3 py-2 text-sm"
-                        >
-                          <option value="">Select Allocation</option>
-                          {getAvailableOptions(s.id).map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {a.method || "-"} · {a.reference_no || "-"} · $
-                              {a.allocated_amount}
-                            </option>
-                          ))}
-                        </select>
-
-                        <input
-                          value={allocationForm.allocated_amount}
-                          onChange={(e) =>
-                            setAllocationForm({
-                              ...allocationForm,
-                              allocated_amount: e.target.value,
-                            })
-                          }
-                          className="w-40 border rounded-lg px-3 py-2 text-sm"
-                          placeholder="Amount"
-                        />
-
-                        <button
-                          type="button"
-                          onClick={() => linkAllocation(s.id)}
-                          className="px-6 py-2 rounded-lg bg-gray-900 text-white text-sm whitespace-nowrap"
-                        >
-                          Link
-                        </button>
-                      </div>
-
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50 text-gray-500">
-                          <tr>
-                            <th className="text-left px-5 py-3">Method</th>
-                            <th className="text-left px-5 py-3">Reference</th>
-                            <th className="text-right px-5 py-3">Amount</th>
-                            <th className="text-left px-5 py-3">Action</th>
-                          </tr>
-                        </thead>
-
-                        <tbody>
-                          {(shipmentAllocations[s.id] || []).map((a) => (
-                            <tr key={a.id} className="border-t">
-                              <td className="px-5 py-3">{a.method || "-"}</td>
-                              <td className="px-5 py-3">
-                                {a.reference_no || "-"}
-                              </td>
-                              <td className="px-5 py-3 text-right">
-                                ${Number(a.allocated_amount || 0).toFixed(2)}
-                              </td>
-                              <td className="px-5 py-3">
-                                <button
-                                  type="button"
-                                  onClick={() => unlinkAllocation(s.id, a.id)}
-                                  className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50 text-sm"
-                                >
-                                  Unlink
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-
-                          {(shipmentAllocations[s.id] || []).length === 0 && (
-                            <tr>
-                              <td
-                                className="px-5 py-6 text-gray-500"
-                                colSpan="4"
-                              >
-                                No linked allocations.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <div className={cardClass}>
-                      <div className={cardTitleClass}>Shipment Evidence</div>
-
-                      <DocumentPage
-                        relatedType="shipment"
-                        relatedId={s.id}
-                        compact
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            </ShipmentCard>
           );
         })}
 
