@@ -32,7 +32,7 @@ export default function BatchDetail({ batch, onBack, onRefresh }) {
         ← Back to Batches
       </button>
 
-      <BatchFinancialSummary batch={batch} />
+      <BatchFinancialSummary batch={batch} onSaved={onRefresh} />
 
       <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
         <div className="flex border-b bg-gray-50">
