@@ -275,6 +275,7 @@ function getUploadButtonText(relatedType) {
             <tr>
               <th className="text-left px-5 py-3">Title</th>
               <th className="text-left px-5 py-3">Document Type</th>
+              <th className="text-left px-5 py-3">Related</th>
               <th className="text-left px-5 py-3">File Name</th>
               <th className="text-left px-5 py-3">Date</th>
               <th className="text-left px-5 py-3">Action</th>
@@ -286,9 +287,16 @@ function getUploadButtonText(relatedType) {
               <tr key={d.id} className="border-t">
                 <td className="px-5 py-3 font-medium">{d.title}</td>
                 <td className="px-5 py-3">
-                  {getCategoryLabel(d.category, relatedType)}
-                </td>
-                <td className="px-5 py-3">{d.file_name}</td>
+  {getCategoryLabel(d.category, relatedType)}
+</td>
+
+<td className="px-5 py-3">
+  {d.related_type_label && d.related_label
+    ? `${d.related_type_label} ${d.related_label}`
+    : "-"}
+</td>
+
+<td className="px-5 py-3">{d.file_name}</td>
                 <td className="px-5 py-3">
                   {d.created_at ? d.created_at.slice(0, 10) : "-"}
                 </td>
@@ -307,7 +315,7 @@ function getUploadButtonText(relatedType) {
 
             {documents.length === 0 && (
               <tr>
-                <td className="px-5 py-6 text-gray-500" colSpan="5">
+                <td className="px-5 py-6 text-gray-500" colSpan="6">
                   No documents uploaded yet.
                 </td>
               </tr>
