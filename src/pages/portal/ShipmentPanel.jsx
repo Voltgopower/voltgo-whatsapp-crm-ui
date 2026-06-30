@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 
 import ShipmentCard from "./shipment/ShipmentCard";
+import ShipmentProducts from "./shipment/ShipmentProducts";
 import ShipmentAllocation from "./shipment/ShipmentAllocation";
 import ShipmentEvidence from "./shipment/ShipmentEvidence";
 
@@ -42,13 +43,11 @@ export default function ShipmentPanel({ batchId }) {
     const res = await axios.get(
       `${API_BASE}/portal/batches/${batchId}/shipments`
     );
-
     setShipments(Array.isArray(res.data) ? res.data : []);
   }
 
   async function loadAvailableAllocations() {
     const res = await axios.get(`${API_BASE}/portal/available-allocations`);
-
     setAvailableAllocations(Array.isArray(res.data) ? res.data : []);
   }
 
@@ -65,7 +64,6 @@ export default function ShipmentPanel({ batchId }) {
 
   async function createShipment(e) {
     e.preventDefault();
-
     if (saving) return;
 
     if (!form.shipment_no.trim()) {
@@ -143,7 +141,7 @@ export default function ShipmentPanel({ batchId }) {
       0
     );
 
-    return Number(shipment.linked_amount || localAmount || 0).toFixed(2);
+    return Number(shipment.linked_amount || localAmount || 0);
   }
 
   function getAvailableOptions(shipmentId) {
@@ -156,6 +154,22 @@ export default function ShipmentPanel({ batchId }) {
     );
   }
 
+  function formatMoney(value) {
+    return `$${Number(value || 0).toFixed(2)}`;
+  }
+
+  const totalShipments = shipments.length;
+  const inTransitCount = shipments.filter(
+    (s) => s.status === "in_transit"
+  ).length;
+  const deliveredCount = shipments.filter(
+    (s) => s.status === "delivered"
+  ).length;
+  const totalLinkedAmount = shipments.reduce(
+    (sum, s) => sum + getShipmentAmount(s),
+    0
+  );
+
   useEffect(() => {
     if (batchId) {
       loadShipments();
@@ -164,130 +178,164 @@ export default function ShipmentPanel({ batchId }) {
   }, [batchId]);
 
   return (
-    <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between px-5 py-4 border-b">
-        <div className="font-semibold">Shipments</div>
-
-        <button
-          type="button"
-          onClick={() => setShowForm((prev) => !prev)}
-          className={secondaryButtonClass}
-        >
-          {showForm ? "Cancel" : "+ Add Shipment"}
-        </button>
-      </div>
-
-      {showForm && (
-        <form onSubmit={createShipment} className="p-5 border-b bg-gray-50">
-          <div className="grid grid-cols-3 gap-4">
-            <input
-              value={form.shipment_no}
-              onChange={(e) =>
-                setForm({ ...form, shipment_no: e.target.value })
-              }
-              className={inputClass}
-              placeholder="Shipment No"
-            />
-
-            <input
-              value={form.carrier}
-              onChange={(e) => setForm({ ...form, carrier: e.target.value })}
-              className={inputClass}
-              placeholder="Carrier"
-            />
-
-            <input
-              value={form.tracking_no}
-              onChange={(e) =>
-                setForm({ ...form, tracking_no: e.target.value })
-              }
-              className={inputClass}
-              placeholder="Tracking No"
-            />
-
-            <input
-              value={form.bol_no}
-              onChange={(e) => setForm({ ...form, bol_no: e.target.value })}
-              className={inputClass}
-              placeholder="B/L No"
-            />
-
-            <input
-              value={form.container_no}
-              onChange={(e) =>
-                setForm({ ...form, container_no: e.target.value })
-              }
-              className={inputClass}
-              placeholder="Container No"
-            />
-
-            <select
-              value={form.status}
-              onChange={(e) => setForm({ ...form, status: e.target.value })}
-              className={inputClass}
-            >
-              <option value="draft">Draft</option>
-              <option value="in_transit">In Transit</option>
-              <option value="delivered">Delivered</option>
-              <option value="closed">Closed</option>
-            </select>
-          </div>
+    <div className="space-y-5">
+      <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <div className="font-semibold">Shipments</div>
 
           <button
-            type="submit"
-            disabled={saving}
-            className={`${primaryButtonClass} mt-4`}
+            type="button"
+            onClick={() => setShowForm((prev) => !prev)}
+            className={secondaryButtonClass}
           >
-            {saving ? "Saving..." : "Save Shipment"}
+            {showForm ? "Cancel" : "+ Add Shipment"}
           </button>
-        </form>
-      )}
+        </div>
 
-      <div className="space-y-3 p-5">
-        {shipments.map((shipment) => {
-          const isOpen = openShipmentId === shipment.id;
-          const allocations = shipmentAllocations[shipment.id] || [];
-          const linkedAmount = getShipmentAmount(shipment);
-
-          return (
-            <ShipmentCard
-              key={shipment.id}
-              shipment={shipment}
-              isOpen={isOpen}
-              linkedAmount={linkedAmount}
-              onToggle={async () => {
-                const nextId = isOpen ? null : shipment.id;
-                setOpenShipmentId(nextId);
-
-                if (nextId) {
-                  await loadShipmentAllocations(nextId);
+        {showForm && (
+          <form onSubmit={createShipment} className="p-5 border-b bg-gray-50">
+            <div className="grid grid-cols-3 gap-4">
+              <input
+                value={form.shipment_no}
+                onChange={(e) =>
+                  setForm({ ...form, shipment_no: e.target.value })
                 }
-              }}
+                className={inputClass}
+                placeholder="Shipment No"
+              />
+
+              <input
+                value={form.carrier}
+                onChange={(e) =>
+                  setForm({ ...form, carrier: e.target.value })
+                }
+                className={inputClass}
+                placeholder="Carrier"
+              />
+
+              <input
+                value={form.tracking_no}
+                onChange={(e) =>
+                  setForm({ ...form, tracking_no: e.target.value })
+                }
+                className={inputClass}
+                placeholder="Tracking No"
+              />
+
+              <input
+                value={form.bol_no}
+                onChange={(e) => setForm({ ...form, bol_no: e.target.value })}
+                className={inputClass}
+                placeholder="B/L No"
+              />
+
+              <input
+                value={form.container_no}
+                onChange={(e) =>
+                  setForm({ ...form, container_no: e.target.value })
+                }
+                className={inputClass}
+                placeholder="Container No"
+              />
+
+              <select
+                value={form.status}
+                onChange={(e) => setForm({ ...form, status: e.target.value })}
+                className={inputClass}
+              >
+                <option value="draft">Draft</option>
+                <option value="in_transit">In Transit</option>
+                <option value="delivered">Delivered</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+
+            <button
+              type="submit"
+              disabled={saving}
+              className={`${primaryButtonClass} mt-4`}
             >
-              <div className="border-t bg-gray-50 p-4 space-y-4">
-                <ShipmentAllocation
-                  shipment={shipment}
-                  allocations={allocations}
-                  availableOptions={getAvailableOptions(shipment.id)}
-                  allocationForm={allocationForm}
-                  setAllocationForm={setAllocationForm}
-                  showAllocationForm={showAllocationForm}
-                  setShowAllocationForm={setShowAllocationForm}
-                  linkAllocation={linkAllocation}
-                  unlinkAllocation={unlinkAllocation}
-                />
-
-                <ShipmentEvidence shipment={shipment} />
-              </div>
-            </ShipmentCard>
-          );
-        })}
-
-        {shipments.length === 0 && (
-          <div className="rounded-xl border bg-white p-6 text-gray-500">
-            No shipments yet.
-          </div>
+              {saving ? "Saving..." : "Save Shipment"}
+            </button>
+          </form>
         )}
+
+        <div className="grid grid-cols-4 gap-4 p-5">
+          <div className="rounded-2xl border bg-white p-5">
+            <div className="text-sm text-gray-500">Shipment Records</div>
+            <div className="text-3xl font-bold mt-2">{totalShipments}</div>
+          </div>
+
+          <div className="rounded-2xl border bg-white p-5">
+            <div className="text-sm text-gray-500">In Transit</div>
+            <div className="text-3xl font-bold mt-2">{inTransitCount}</div>
+          </div>
+
+          <div className="rounded-2xl border bg-white p-5">
+            <div className="text-sm text-gray-500">Delivered</div>
+            <div className="text-3xl font-bold mt-2">{deliveredCount}</div>
+          </div>
+
+          <div className="rounded-2xl border bg-white p-5">
+            <div className="text-sm text-gray-500">Linked Amount</div>
+            <div className="text-3xl font-bold mt-2">
+              {formatMoney(totalLinkedAmount)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b font-semibold">Shipment List</div>
+
+        <div className="space-y-3 p-5">
+          {shipments.map((shipment) => {
+            const isOpen = openShipmentId === shipment.id;
+            const allocations = shipmentAllocations[shipment.id] || [];
+            const linkedAmount = getShipmentAmount(shipment);
+
+            return (
+              <ShipmentCard
+                key={shipment.id}
+                shipment={shipment}
+                isOpen={isOpen}
+                linkedAmount={linkedAmount.toFixed(2)}
+                onToggle={async () => {
+                  const nextId = isOpen ? null : shipment.id;
+                  setOpenShipmentId(nextId);
+
+                  if (nextId) {
+                    await loadShipmentAllocations(nextId);
+                  }
+                }}
+              >
+                <div className="border-t bg-gray-50 p-4 space-y-4">
+  <ShipmentProducts shipment={shipment} />
+
+  <ShipmentAllocation
+    shipment={shipment}
+    allocations={allocations}
+    availableOptions={getAvailableOptions(shipment.id)}
+    allocationForm={allocationForm}
+    setAllocationForm={setAllocationForm}
+    showAllocationForm={showAllocationForm}
+    setShowAllocationForm={setShowAllocationForm}
+    linkAllocation={linkAllocation}
+    unlinkAllocation={unlinkAllocation}
+  />
+
+  <ShipmentEvidence shipment={shipment} />
+</div>
+              </ShipmentCard>
+            );
+          })}
+
+          {shipments.length === 0 && (
+            <div className="rounded-xl border bg-white p-6 text-gray-500">
+              No shipments yet.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -4,6 +4,10 @@ export default function PortalSidebar({ tab, setTab }) {
       key: "batches",
       label: "Batches",
     },
+    { 
+      key: "products", 
+      label: "Products" 
+    },
     {
       key: "documents",
       label: "Documents",

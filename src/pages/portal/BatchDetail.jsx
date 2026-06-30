@@ -6,16 +6,18 @@ import BatchPaymentSummary from "./BatchPaymentSummary";
 import PaymentTable from "./PaymentTable";
 import ShipmentPanel from "./ShipmentPanel";
 import DocumentPage from "./DocumentPage";
+import RecordPaymentPanel from "./RecordPaymentPanel";
+import OverviewTab from "./OverviewTab";
 
 const tabs = [
   { key: "overview", label: "Overview" },
   { key: "shipments", label: "Shipments" },
   { key: "payments", label: "Payments" },
-  { key: "items", label: "Items" },
+  { key: "items", label: "Products" },
   { key: "documents", label: "Documents" },
 ];
 
-export default function BatchDetail({ batch, onBack }) {
+export default function BatchDetail({ batch, onBack, onRefresh }) {
   const [activeTab, setActiveTab] = useState("overview");
 
   if (!batch) return null;
@@ -51,11 +53,7 @@ export default function BatchDetail({ batch, onBack }) {
         </div>
 
         <div className="p-5">
-          {activeTab === "overview" && (
-            <div className="space-y-5">
-              <BatchPaymentSummary batch={batch} />
-            </div>
-          )}
+          {activeTab === "overview" && <OverviewTab batch={batch} />}
 
           {activeTab === "shipments" && (
             <ShipmentPanel batchId={batch.id} />
@@ -63,6 +61,7 @@ export default function BatchDetail({ batch, onBack }) {
 
           {activeTab === "payments" && (
             <div className="space-y-5">
+              <RecordPaymentPanel batch={batch} onSaved={onRefresh} />
               <BatchPaymentSummary batch={batch} />
               <PaymentTable payments={batch.payments || []} />
             </div>

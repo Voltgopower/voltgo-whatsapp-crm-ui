@@ -8,6 +8,7 @@ import NewBatchPage from "./NewBatchPage";
 import DocumentPage from "./DocumentPage";
 import PortalSidebar from "./PortalSidebar";
 import ReportCenter from "./ReportCenter";
+import ProductLibrary from "./ProductLibrary";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api";
@@ -107,10 +108,12 @@ export default function PortalPage() {
 
           {tab === "batchDetail" && selectedBatch && (
             <BatchDetail
-              batch={selectedBatch}
-              onBack={() => handleSetTab("batches")}
-            />
+             batch={selectedBatch}
+             onBack={() => handleSetTab("batches")}
+             onRefresh={() => loadBatchDetail(selectedBatch.id)}
+          />
           )}
+          {tab === "products" && <ProductLibrary />}
 
           {tab === "documents" && <DocumentPage />}
 
