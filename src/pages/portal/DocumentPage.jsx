@@ -6,7 +6,32 @@ const API_BASE =
 
 function getDefaultCategory(relatedType) {
   if (relatedType === "shipment") return "commercial_invoice";
-  return "payment_proof";
+  if (relatedType === "payment") return "wire_receipt";
+  if (relatedType === "batch") return "purchase_order";
+  return "other";
+}
+
+function getDocumentTitle(relatedType) {
+  if (relatedType === "shipment") return "Shipment Documents";
+  if (relatedType === "payment") return "Payment Evidence";
+  if (relatedType === "batch") return "Batch Documents";
+  return "Document Center";
+}
+
+function getDocumentDescription(relatedType) {
+  if (relatedType === "shipment") {
+    return "Store shipment documents such as invoice, packing list, B/L, photos, and delivery records.";
+  }
+
+  if (relatedType === "payment") {
+    return "Store payment evidence such as wire receipts, ACH confirmations, check scans, and remittance advice.";
+  }
+
+  if (relatedType === "batch") {
+    return "Store batch-level documents such as purchase orders, contracts, and project notes.";
+  }
+
+  return "Search and manage documents across batches, shipments, and payments.";
 }
 
 function getCategoryOptions(relatedType) {
@@ -15,22 +40,40 @@ function getCategoryOptions(relatedType) {
       { value: "commercial_invoice", label: "Commercial Invoice" },
       { value: "packing_list", label: "Packing List" },
       { value: "bill_of_lading", label: "Bill of Lading" },
-      { value: "arrival_notice", label: "Arrival Notice" },
-      { value: "proof_of_delivery", label: "Proof of Delivery" },
-      { value: "inspection_photo", label: "Inspection Photo" },
+      { value: "customs_document", label: "Customs Document" },
+      { value: "delivery_receipt", label: "Proof of Delivery" },
+      { value: "loading_photo", label: "Loading Photo" },
       { value: "other", label: "Other" },
     ];
   }
 
-  return [
-    { value: "payment_proof", label: "Payment Proof" },
-    { value: "invoice", label: "Invoice" },
-    { value: "shipping", label: "Shipping Document" },
-    { value: "test_report", label: "Test Report" },
-    { value: "warranty", label: "Warranty" },
-    { value: "customer_photo", label: "Customer Photo" },
-    { value: "other", label: "Other" },
-  ];
+  if (relatedType === "payment") {
+    return [
+      { value: "wire_receipt", label: "Wire Receipt" },
+      { value: "ach_confirmation", label: "ACH Confirmation" },
+      { value: "check_scan", label: "Check Scan" },
+      { value: "remittance_advice", label: "Remittance Advice" },
+      { value: "bank_receipt", label: "Bank Receipt" },
+      { value: "other", label: "Other" },
+    ];
+  }
+
+  if (relatedType === "batch") {
+    return [
+      { value: "purchase_order", label: "Purchase Order" },
+      { value: "sales_contract", label: "Sales Contract" },
+      { value: "customer_contract", label: "Customer Contract" },
+      { value: "project_note", label: "Project Note" },
+      { value: "other", label: "Other" },
+    ];
+  }
+
+  return [{ value: "other", label: "Other" }];
+}
+
+function getCategoryLabel(value, relatedType) {
+  const options = getCategoryOptions(relatedType);
+  return options.find((item) => item.value === value)?.label || value || "-";
 }
 
 export default function DocumentPage({
@@ -42,17 +85,15 @@ export default function DocumentPage({
   const [uploading, setUploading] = useState(false);
   const [openingId, setOpeningId] = useState(null);
   const [showUpload, setShowUpload] = useState(false);
+
   const [form, setForm] = useState({
     title: "",
     category: getDefaultCategory(relatedType),
     file: null,
   });
 
+  const documentTitle = getDocumentTitle(relatedType);
   const categoryOptions = getCategoryOptions(relatedType);
-function getCategoryLabel(value, relatedType) {
-  const options = getCategoryOptions(relatedType);
-  return options.find((item) => item.value === value)?.label || value || "-";
-}
 
   async function loadDocuments() {
     const params = {};
@@ -80,13 +121,8 @@ function getCategoryLabel(value, relatedType) {
       formData.append("title", form.title || form.file.name);
       formData.append("category", form.category);
 
-      if (relatedType) {
-        formData.append("related_type", relatedType);
-      }
-
-      if (relatedId) {
-        formData.append("related_id", relatedId);
-      }
+      if (relatedType) formData.append("related_type", relatedType);
+      if (relatedId) formData.append("related_id", relatedId);
 
       await axios.post(`${API_BASE}/portal/documents`, formData);
 
@@ -97,7 +133,7 @@ function getCategoryLabel(value, relatedType) {
       });
 
       e.target.reset();
-
+      setShowUpload(false);
       await loadDocuments();
     } catch (err) {
       console.error("Upload document failed:", err);
@@ -135,13 +171,13 @@ function getCategoryLabel(value, relatedType) {
     loadDocuments();
   }, [relatedType, relatedId]);
 
-    return (
+  return (
     <div className={compact ? "space-y-4" : "space-y-6"}>
       {!compact && (
         <div>
-          <div className="text-2xl font-bold">Evidence</div>
+          <div className="text-2xl font-bold">{documentTitle}</div>
           <div className="text-sm text-gray-500">
-            Store official evidence for future reference.
+            {getDocumentDescription(relatedType)}
           </div>
         </div>
       )}
@@ -149,9 +185,7 @@ function getCategoryLabel(value, relatedType) {
       {compact && showUpload && (
         <div className="bg-white rounded-2xl border shadow-sm p-5">
           <div className="text-lg font-semibold mb-4">
-            {relatedType === "shipment"
-              ? "Upload Shipment Evidence"
-              : "Upload Evidence"}
+            Upload {documentTitle}
           </div>
 
           <form
@@ -164,17 +198,19 @@ function getCategoryLabel(value, relatedType) {
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
                 className="w-full border rounded-lg px-3 py-2 text-sm"
-                placeholder="Evidence title"
+                placeholder="Document title"
               />
             </div>
 
             <div>
               <label className="block text-sm text-gray-500 mb-1">
-                Evidence Type
+                Document Type
               </label>
               <select
                 value={form.category}
-                onChange={(e) => setForm({ ...form, category: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, category: e.target.value })
+                }
                 className="w-full border rounded-lg px-3 py-2 text-sm"
               >
                 {categoryOptions.map((item) => (
@@ -201,7 +237,7 @@ function getCategoryLabel(value, relatedType) {
               disabled={uploading}
               className="px-5 py-2 rounded-lg bg-gray-900 text-white text-sm disabled:opacity-50"
             >
-              {uploading ? "Uploading..." : "Upload Evidence"}
+              {uploading ? "Uploading..." : `Upload ${documentTitle}`}
             </button>
           </form>
         </div>
@@ -209,24 +245,31 @@ function getCategoryLabel(value, relatedType) {
 
       <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b">
-  <div className="font-semibold">Evidence</div>
+          <div>
+            <div className="font-semibold">{documentTitle}</div>
+            {compact && (
+              <div className="text-sm text-gray-500 mt-1">
+                {getDocumentDescription(relatedType)}
+              </div>
+            )}
+          </div>
 
-  {compact && (
-    <button
-      type="button"
-      onClick={() => setShowUpload((prev) => !prev)}
-      className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50 text-sm"
-    >
-      {showUpload ? "Cancel" : "+ Upload Evidence"}
-    </button>
-  )}
-</div>
+          {compact && (
+            <button
+              type="button"
+              onClick={() => setShowUpload((prev) => !prev)}
+              className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50 text-sm"
+            >
+              {showUpload ? "Cancel" : `+ Upload ${documentTitle}`}
+            </button>
+          )}
+        </div>
 
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-gray-500">
             <tr>
               <th className="text-left px-5 py-3">Title</th>
-              <th className="text-left px-5 py-3">Evidence Type</th>
+              <th className="text-left px-5 py-3">Document Type</th>
               <th className="text-left px-5 py-3">File Name</th>
               <th className="text-left px-5 py-3">Date</th>
               <th className="text-left px-5 py-3">Action</th>
@@ -238,7 +281,7 @@ function getCategoryLabel(value, relatedType) {
               <tr key={d.id} className="border-t">
                 <td className="px-5 py-3 font-medium">{d.title}</td>
                 <td className="px-5 py-3">
-                 {getCategoryLabel(d.category, relatedType)}
+                  {getCategoryLabel(d.category, relatedType)}
                 </td>
                 <td className="px-5 py-3">{d.file_name}</td>
                 <td className="px-5 py-3">
@@ -260,7 +303,7 @@ function getCategoryLabel(value, relatedType) {
             {documents.length === 0 && (
               <tr>
                 <td className="px-5 py-6 text-gray-500" colSpan="5">
-                  No evidence uploaded.
+                  No {documentTitle.toLowerCase()} uploaded.
                 </td>
               </tr>
             )}
