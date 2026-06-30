@@ -10,7 +10,7 @@ export default function PortalSidebar({ tab, setTab }) {
     },
     {
       key: "documents",
-      label: "Documents",
+      label: "Document Center",
     },
     {
       key: "reports",

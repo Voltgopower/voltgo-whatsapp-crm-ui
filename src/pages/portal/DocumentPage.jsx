@@ -143,6 +143,11 @@ export default function DocumentPage({
     }
   }
 
+function getUploadButtonText(relatedType) {
+  if (relatedType === "payment") return "+ Upload Evidence";
+  return "+ Upload Document";
+}
+
   async function openDocument(id) {
     setOpeningId(id);
 
@@ -260,7 +265,7 @@ export default function DocumentPage({
               onClick={() => setShowUpload((prev) => !prev)}
               className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50 text-sm"
             >
-              {showUpload ? "Cancel" : `+ Upload ${documentTitle}`}
+              {showUpload ? "Cancel" : getUploadButtonText(relatedType)}
             </button>
           )}
         </div>
@@ -303,7 +308,7 @@ export default function DocumentPage({
             {documents.length === 0 && (
               <tr>
                 <td className="px-5 py-6 text-gray-500" colSpan="5">
-                  No {documentTitle.toLowerCase()} uploaded.
+                  No documents uploaded yet.
                 </td>
               </tr>
             )}
