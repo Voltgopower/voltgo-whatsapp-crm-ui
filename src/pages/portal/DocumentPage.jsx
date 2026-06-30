@@ -34,6 +34,11 @@ function getDocumentDescription(relatedType) {
   return "Search and manage documents across batches, shipments, and payments.";
 }
 
+function getUploadButtonText(relatedType) {
+  if (relatedType === "payment") return "+ Upload Evidence";
+  return "+ Upload Document";
+}
+
 function getCategoryOptions(relatedType) {
   if (relatedType === "shipment") {
     return [
@@ -54,6 +59,7 @@ function getCategoryOptions(relatedType) {
       { value: "check_scan", label: "Check Scan" },
       { value: "remittance_advice", label: "Remittance Advice" },
       { value: "bank_receipt", label: "Bank Receipt" },
+      { value: "payment_proof", label: "Payment Proof" },
       { value: "other", label: "Other" },
     ];
   }
@@ -68,12 +74,61 @@ function getCategoryOptions(relatedType) {
     ];
   }
 
-  return [{ value: "other", label: "Other" }];
+  return [
+    { value: "commercial_invoice", label: "Commercial Invoice" },
+    { value: "purchase_order", label: "Purchase Order" },
+    { value: "packing_list", label: "Packing List" },
+    { value: "bill_of_lading", label: "Bill of Lading" },
+    { value: "wire_receipt", label: "Wire Receipt" },
+    { value: "payment_proof", label: "Payment Proof" },
+    { value: "other", label: "Other" },
+  ];
 }
 
 function getCategoryLabel(value, relatedType) {
   const options = getCategoryOptions(relatedType);
-  return options.find((item) => item.value === value)?.label || value || "-";
+  const label = options.find((item) => item.value === value)?.label;
+
+  if (label) return label;
+
+  const fallbackMap = {
+    invoice: "Commercial Invoice",
+    commercial_invoice: "Commercial Invoice",
+    payment_proof: "Payment Proof",
+    purchase_order: "Purchase Order",
+    bill_of_lading: "Bill of Lading",
+    packing_list: "Packing List",
+    wire_receipt: "Wire Receipt",
+    ach_confirmation: "ACH Confirmation",
+    check_scan: "Check Scan",
+    remittance_advice: "Remittance Advice",
+    bank_receipt: "Bank Receipt",
+    customs_document: "Customs Document",
+    delivery_receipt: "Proof of Delivery",
+    loading_photo: "Loading Photo",
+    sales_contract: "Sales Contract",
+    customer_contract: "Customer Contract",
+    project_note: "Project Note",
+    other: "Other",
+  };
+
+  return fallbackMap[value] || value || "-";
+}
+
+function getRelatedTagClass(type) {
+  if (type === "Batch") {
+    return "bg-blue-50 text-blue-700";
+  }
+
+  if (type === "Shipment") {
+    return "bg-green-50 text-green-700";
+  }
+
+  if (type === "Payment") {
+    return "bg-orange-50 text-orange-700";
+  }
+
+  return "bg-gray-100 text-gray-700";
 }
 
 export default function DocumentPage({
@@ -85,6 +140,7 @@ export default function DocumentPage({
   const [uploading, setUploading] = useState(false);
   const [openingId, setOpeningId] = useState(null);
   const [showUpload, setShowUpload] = useState(false);
+  const [searchText, setSearchText] = useState("");
 
   const [form, setForm] = useState({
     title: "",
@@ -94,6 +150,22 @@ export default function DocumentPage({
 
   const documentTitle = getDocumentTitle(relatedType);
   const categoryOptions = getCategoryOptions(relatedType);
+
+  const filteredDocuments = documents.filter((doc) => {
+    const keyword = searchText.trim().toLowerCase();
+
+    if (!keyword) return true;
+
+    return [
+      doc.title,
+      doc.category,
+      doc.file_name,
+      doc.related_type_label,
+      doc.related_label,
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(keyword));
+  });
 
   async function loadDocuments() {
     const params = {};
@@ -117,6 +189,7 @@ export default function DocumentPage({
 
     try {
       const formData = new FormData();
+
       formData.append("file", form.file);
       formData.append("title", form.title || form.file.name);
       formData.append("category", form.category);
@@ -134,6 +207,7 @@ export default function DocumentPage({
 
       e.target.reset();
       setShowUpload(false);
+
       await loadDocuments();
     } catch (err) {
       console.error("Upload document failed:", err);
@@ -142,11 +216,6 @@ export default function DocumentPage({
       setUploading(false);
     }
   }
-
-function getUploadButtonText(relatedType) {
-  if (relatedType === "payment") return "+ Upload Evidence";
-  return "+ Upload Document";
-}
 
   async function openDocument(id) {
     setOpeningId(id);
@@ -252,6 +321,7 @@ function getUploadButtonText(relatedType) {
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <div>
             <div className="font-semibold">{documentTitle}</div>
+
             {compact && (
               <div className="text-sm text-gray-500 mt-1">
                 {getDocumentDescription(relatedType)}
@@ -270,6 +340,17 @@ function getUploadButtonText(relatedType) {
           )}
         </div>
 
+        {!compact && (
+          <div className="px-5 py-4 border-b bg-gray-50">
+            <input
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+              placeholder="Search title, file name, related batch, shipment, or payment..."
+            />
+          </div>
+        )}
+
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-gray-500">
             <tr>
@@ -283,40 +364,64 @@ function getUploadButtonText(relatedType) {
           </thead>
 
           <tbody>
-            {documents.map((d) => (
-              <tr key={d.id} className="border-t">
-                <td className="px-5 py-3 font-medium">{d.title}</td>
-                <td className="px-5 py-3">
-  {getCategoryLabel(d.category, relatedType)}
-</td>
+            {filteredDocuments.map((doc) => (
+              <tr key={doc.id} className="border-t">
+                <td className="px-5 py-3 font-medium">{doc.title || "-"}</td>
 
-<td className="px-5 py-3">
-  {d.related_type_label && d.related_label
-    ? `${d.related_type_label} ${d.related_label}`
-    : "-"}
-</td>
-
-<td className="px-5 py-3">{d.file_name}</td>
                 <td className="px-5 py-3">
-                  {d.created_at ? d.created_at.slice(0, 10) : "-"}
+                  {getCategoryLabel(doc.category, doc.related_type)}
                 </td>
+
+                <td className="px-5 py-3">
+                  {doc.related_type_label && doc.related_label ? (
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs ${getRelatedTagClass(
+                          doc.related_type_label
+                        )}`}
+                      >
+                        {doc.related_type_label}
+                      </span>
+
+                      <span>{doc.related_label}</span>
+                    </div>
+                  ) : (
+                    "-"
+                  )}
+                </td>
+
                 <td className="px-5 py-3">
                   <button
                     type="button"
-                    onClick={() => openDocument(d.id)}
-                    disabled={openingId === d.id}
+                    onClick={() => openDocument(doc.id)}
+                    disabled={openingId === doc.id}
+                    className="text-left text-gray-900 hover:underline disabled:opacity-50"
+                  >
+                    {doc.file_name || "-"}
+                  </button>
+                </td>
+
+                <td className="px-5 py-3">
+                  {doc.created_at ? String(doc.created_at).slice(0, 10) : "-"}
+                </td>
+
+                <td className="px-5 py-3">
+                  <button
+                    type="button"
+                    onClick={() => openDocument(doc.id)}
+                    disabled={openingId === doc.id}
                     className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
                   >
-                    {openingId === d.id ? "Opening..." : "Open"}
+                    {openingId === doc.id ? "Opening..." : "Open"}
                   </button>
                 </td>
               </tr>
             ))}
 
-            {documents.length === 0 && (
+            {filteredDocuments.length === 0 && (
               <tr>
                 <td className="px-5 py-6 text-gray-500" colSpan="6">
-                  No documents uploaded yet.
+                  No documents found.
                 </td>
               </tr>
             )}
