@@ -68,7 +68,7 @@ export default function BatchDetail({ batch, onBack, onRefresh }) {
           )}
 
           {activeTab === "items" && (
-            <BatchItemsTable items={batch.items || []} />
+            <BatchItemsTable batchId={batch.id} />
           )}
 
           {activeTab === "documents" && (
