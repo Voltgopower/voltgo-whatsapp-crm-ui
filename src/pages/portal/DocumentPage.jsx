@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 
 const API_BASE =
@@ -79,8 +79,8 @@ function getCategoryOptions(relatedType) {
     { value: "purchase_order", label: "Purchase Order" },
     { value: "packing_list", label: "Packing List" },
     { value: "bill_of_lading", label: "Bill of Lading" },
-    { value: "wire_receipt", label: "Wire Receipt" },
     { value: "payment_proof", label: "Payment Proof" },
+    { value: "wire_receipt", label: "Wire Receipt" },
     { value: "other", label: "Other" },
   ];
 }
@@ -115,20 +115,21 @@ function getCategoryLabel(value, relatedType) {
   return fallbackMap[value] || value || "-";
 }
 
-function getRelatedTagClass(type) {
-  if (type === "Batch") {
-    return "bg-blue-50 text-blue-700";
-  }
-
-  if (type === "Shipment") {
-    return "bg-green-50 text-green-700";
-  }
-
-  if (type === "Payment") {
-    return "bg-orange-50 text-orange-700";
-  }
-
+function getOwnerClass(type) {
+  if (type === "Batch") return "bg-blue-50 text-blue-700";
+  if (type === "Shipment") return "bg-green-50 text-green-700";
+  if (type === "Payment") return "bg-orange-50 text-orange-700";
   return "bg-gray-100 text-gray-700";
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+
+  return new Date(value).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 export default function DocumentPage({
@@ -141,6 +142,7 @@ export default function DocumentPage({
   const [openingId, setOpeningId] = useState(null);
   const [showUpload, setShowUpload] = useState(false);
   const [searchText, setSearchText] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState("all");
 
   const [form, setForm] = useState({
     title: "",
@@ -151,21 +153,29 @@ export default function DocumentPage({
   const documentTitle = getDocumentTitle(relatedType);
   const categoryOptions = getCategoryOptions(relatedType);
 
-  const filteredDocuments = documents.filter((doc) => {
-    const keyword = searchText.trim().toLowerCase();
+  const filteredDocuments = useMemo(() => {
+    return documents.filter((doc) => {
+      const keyword = searchText.trim().toLowerCase();
 
-    if (!keyword) return true;
+      const matchesSearch =
+        !keyword ||
+        [
+          doc.title,
+          doc.category,
+          doc.file_name,
+          doc.related_type_label,
+          doc.related_label,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(keyword));
 
-    return [
-      doc.title,
-      doc.category,
-      doc.file_name,
-      doc.related_type_label,
-      doc.related_label,
-    ]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(keyword));
-  });
+      const matchesOwner =
+        ownerFilter === "all" ||
+        String(doc.related_type || "").toLowerCase() === ownerFilter;
+
+      return matchesSearch && matchesOwner;
+    });
+  }, [documents, searchText, ownerFilter]);
 
   async function loadDocuments() {
     const params = {};
@@ -207,7 +217,6 @@ export default function DocumentPage({
 
       e.target.reset();
       setShowUpload(false);
-
       await loadDocuments();
     } catch (err) {
       console.error("Upload document failed:", err);
@@ -341,13 +350,30 @@ export default function DocumentPage({
         </div>
 
         {!compact && (
-          <div className="px-5 py-4 border-b bg-gray-50">
-            <input
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2 text-sm"
-              placeholder="Search title, file name, related batch, shipment, or payment..."
-            />
+          <div className="px-5 py-4 border-b bg-gray-50 space-y-3">
+            <div className="flex gap-3">
+              <input
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                className="flex-1 border rounded-lg px-3 py-2 text-sm"
+                placeholder="Search title, file name, related batch, shipment, or payment..."
+              />
+
+              <select
+                value={ownerFilter}
+                onChange={(e) => setOwnerFilter(e.target.value)}
+                className="w-48 border rounded-lg px-3 py-2 text-sm bg-white"
+              >
+                <option value="all">All Owners</option>
+                <option value="batch">Batch</option>
+                <option value="shipment">Shipment</option>
+                <option value="payment">Payment</option>
+              </select>
+            </div>
+
+            <div className="text-sm text-gray-500">
+              {filteredDocuments.length} of {documents.length} documents
+            </div>
           </div>
         )}
 
@@ -356,7 +382,8 @@ export default function DocumentPage({
             <tr>
               <th className="text-left px-5 py-3">Title</th>
               <th className="text-left px-5 py-3">Document Type</th>
-              <th className="text-left px-5 py-3">Related</th>
+              <th className="text-left px-5 py-3">Owner</th>
+              <th className="text-left px-5 py-3">Reference</th>
               <th className="text-left px-5 py-3">File Name</th>
               <th className="text-left px-5 py-3">Date</th>
               <th className="text-left px-5 py-3">Action</th>
@@ -373,37 +400,36 @@ export default function DocumentPage({
                 </td>
 
                 <td className="px-5 py-3">
-                  {doc.related_type_label && doc.related_label ? (
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`inline-flex rounded-full px-3 py-1 text-xs ${getRelatedTagClass(
-                          doc.related_type_label
-                        )}`}
-                      >
-                        {doc.related_type_label}
-                      </span>
-
-                      <span>{doc.related_label}</span>
-                    </div>
+                  {doc.related_type_label ? (
+                    <span
+                      className={`inline-flex rounded-full px-3 py-1 text-xs ${getOwnerClass(
+                        doc.related_type_label
+                      )}`}
+                    >
+                      {doc.related_type_label}
+                    </span>
                   ) : (
                     "-"
                   )}
                 </td>
 
                 <td className="px-5 py-3">
+                  {doc.related_label ? doc.related_label : "-"}
+                </td>
+
+                <td className="px-5 py-3 max-w-[240px]">
                   <button
                     type="button"
                     onClick={() => openDocument(doc.id)}
                     disabled={openingId === doc.id}
-                    className="text-left text-gray-900 hover:underline disabled:opacity-50"
+                    title={doc.file_name || ""}
+                    className="block max-w-[240px] truncate text-left text-gray-900 hover:underline disabled:opacity-50"
                   >
                     {doc.file_name || "-"}
                   </button>
                 </td>
 
-                <td className="px-5 py-3">
-                  {doc.created_at ? String(doc.created_at).slice(0, 10) : "-"}
-                </td>
+                <td className="px-5 py-3">{formatDate(doc.created_at)}</td>
 
                 <td className="px-5 py-3">
                   <button
@@ -412,7 +438,7 @@ export default function DocumentPage({
                     disabled={openingId === doc.id}
                     className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
                   >
-                    {openingId === doc.id ? "Opening..." : "Open"}
+                    {openingId === doc.id ? "Opening..." : "View"}
                   </button>
                 </td>
               </tr>
@@ -420,7 +446,7 @@ export default function DocumentPage({
 
             {filteredDocuments.length === 0 && (
               <tr>
-                <td className="px-5 py-6 text-gray-500" colSpan="6">
+                <td className="px-5 py-6 text-gray-500" colSpan="7">
                   No documents found.
                 </td>
               </tr>
