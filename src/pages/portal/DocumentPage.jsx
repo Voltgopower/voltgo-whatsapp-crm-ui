@@ -430,39 +430,38 @@ async function deleteDocument(doc) {
                   {doc.related_label ? doc.related_label : "-"}
                 </td>
 
-                <td className="px-5 py-3 max-w-[240px]">
-                  <div className="flex gap-2">
-  <button
-    type="button"
-    onClick={() => openDocument(doc.id)}
-    disabled={openingId === doc.id}
-    className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
-  >
-    {openingId === doc.id ? "Opening..." : "View"}
-  </button>
-
-  <button
-    type="button"
-    onClick={() => deleteDocument(doc)}
-    className="px-3 py-1 rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50 text-sm"
-  >
-    Delete
-  </button>
-</div>
-                </td>
-
-                <td className="px-5 py-3">{formatDate(doc.created_at)}</td>
-
                 <td className="px-5 py-3">
-                  <button
-                    type="button"
-                    onClick={() => openDocument(doc.id)}
-                    disabled={openingId === doc.id}
-                    className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
-                  >
-                    {openingId === doc.id ? "Opening..." : "View"}
-                  </button>
-                </td>
+  <div className="max-w-[240px] truncate">
+    {doc.file_name || "-"}
+  </div>
+</td>
+  {doc.file_name || "-"}
+</td>
+
+<td className="px-5 py-3">
+  {formatDate(doc.created_at)}
+</td>
+
+<td className="px-5 py-3">
+  <div className="flex gap-2">
+    <button
+      type="button"
+      onClick={() => openDocument(doc.id)}
+      disabled={openingId === doc.id}
+      className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
+    >
+      {openingId === doc.id ? "Opening..." : "View"}
+    </button>
+
+    <button
+      type="button"
+      onClick={() => deleteDocument(doc)}
+      className="px-3 py-1 rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50 text-sm"
+    >
+      Delete
+    </button>
+  </div>
+</td>
               </tr>
             ))}
 
