@@ -8,6 +8,8 @@ const API_BASE =
 const inputClass = "border rounded-lg px-3 py-2 text-sm";
 const secondaryButtonClass =
   "px-4 py-2 rounded-lg border bg-white hover:bg-gray-50 text-sm";
+const dangerButtonClass =
+  "px-4 py-2 rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50 text-sm";
 const primaryButtonClass =
   "px-5 py-2 rounded-lg bg-gray-900 text-white text-sm disabled:opacity-50";
 
@@ -26,6 +28,7 @@ export default function ShipmentCard({
 }) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const [form, setForm] = useState({
     shipment_no: shipment.shipment_no || "",
@@ -59,9 +62,34 @@ export default function ShipmentCard({
       }
     } catch (err) {
       console.error("Update shipment failed:", err);
-      alert("Update shipment failed");
+      alert(err.response?.data?.error || "Update shipment failed");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function deleteShipment() {
+    if (
+      !window.confirm(
+        `Delete shipment ${shipment.shipment_no || shipment.id}?`
+      )
+    ) {
+      return;
+    }
+
+    setDeleting(true);
+
+    try {
+      await axios.delete(`${API_BASE}/portal/shipments/${shipment.id}`);
+
+      if (onUpdated) {
+        await onUpdated();
+      }
+    } catch (err) {
+      console.error("Delete shipment failed:", err);
+      alert(err.response?.data?.error || "Delete shipment failed");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -91,6 +119,15 @@ export default function ShipmentCard({
             className={secondaryButtonClass}
           >
             {editing ? "Cancel" : "Edit"}
+          </button>
+
+          <button
+            type="button"
+            onClick={deleteShipment}
+            disabled={deleting}
+            className={dangerButtonClass}
+          >
+            {deleting ? "Deleting..." : "Delete"}
           </button>
 
           <button type="button" onClick={onToggle} className={secondaryButtonClass}>
