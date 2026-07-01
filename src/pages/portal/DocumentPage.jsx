@@ -404,75 +404,73 @@ async function deleteDocument(doc) {
           </thead>
 
           <tbody>
-            {filteredDocuments.map((doc) => (
-              <tr key={doc.id} className="border-t">
-                <td className="px-5 py-3 font-medium">{doc.title || "-"}</td>
+  {filteredDocuments.map((doc) => (
+    <tr key={doc.id} className="border-t">
+      <td className="px-5 py-3 font-medium">{doc.title || "-"}</td>
 
-                <td className="px-5 py-3">
-                  {getCategoryLabel(doc.category, doc.related_type)}
-                </td>
+      <td className="px-5 py-3">
+        {getCategoryLabel(doc.category, doc.related_type)}
+      </td>
 
-                <td className="px-5 py-3">
-                  {doc.related_type_label ? (
-                    <span
-                      className={`inline-flex rounded-full px-3 py-1 text-xs ${getOwnerClass(
-                        doc.related_type_label
-                      )}`}
-                    >
-                      {doc.related_type_label}
-                    </span>
-                  ) : (
-                    "-"
-                  )}
-                </td>
+      <td className="px-5 py-3">
+        {doc.related_type_label ? (
+          <span
+            className={`inline-flex rounded-full px-3 py-1 text-xs ${getOwnerClass(
+              doc.related_type_label
+            )}`}
+          >
+            {doc.related_type_label}
+          </span>
+        ) : (
+          "-"
+        )}
+      </td>
 
-                <td className="px-5 py-3">
-                  {doc.related_label ? doc.related_label : "-"}
-                </td>
+      <td className="px-5 py-3">
+        {doc.related_label ? doc.related_label : "-"}
+      </td>
 
-                <td className="px-5 py-3">
-  <div className="max-w-[240px] truncate">
-    {doc.file_name || "-"}
-  </div>
-</td>
-  {doc.file_name || "-"}
-</td>
+      <td className="px-5 py-3">
+        <div className="max-w-[240px] truncate">
+          {doc.file_name || "-"}
+        </div>
+      </td>
 
-<td className="px-5 py-3">
-  {formatDate(doc.created_at)}
-</td>
+      <td className="px-5 py-3">
+        {formatDate(doc.created_at)}
+      </td>
 
-<td className="px-5 py-3">
-  <div className="flex gap-2">
-    <button
-      type="button"
-      onClick={() => openDocument(doc.id)}
-      disabled={openingId === doc.id}
-      className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
-    >
-      {openingId === doc.id ? "Opening..." : "View"}
-    </button>
+      <td className="px-5 py-3">
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => openDocument(doc.id)}
+            disabled={openingId === doc.id}
+            className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
+          >
+            {openingId === doc.id ? "Opening..." : "View"}
+          </button>
 
-    <button
-      type="button"
-      onClick={() => deleteDocument(doc)}
-      className="px-3 py-1 rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50 text-sm"
-    >
-      Delete
-    </button>
-  </div>
-</td>
-              </tr>
-            ))}
+          <button
+            type="button"
+            onClick={() => deleteDocument(doc)}
+            className="px-3 py-1 rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50 text-sm"
+          >
+            Delete
+          </button>
+        </div>
+      </td>
+    </tr>
+  ))}
 
-            {filteredDocuments.length === 0 && (
-              <tr>
-                <td className="px-5 py-6 text-gray-500" colSpan="7">
-                  No documents found.
-                </td>
-              </tr>
-            )}
-          </tbody>
+  {filteredDocuments.length === 0 && (
+    <tr>
+      <td className="px-5 py-6 text-gray-500" colSpan="7">
+        No documents found.
+      </td>
+    </tr>
+  )}
+</tbody>
         </table>
       </div>
     </div>
