@@ -60,12 +60,15 @@ export default function BatchDetail({ batch, onBack, onRefresh }) {
           )}
 
           {activeTab === "payments" && (
-            <div className="space-y-5">
-              <RecordPaymentPanel batch={batch} onSaved={onRefresh} />
-              <BatchPaymentSummary batch={batch} />
-              <PaymentTable payments={batch.payments || []} />
-            </div>
-          )}
+  <div className="space-y-5">
+    <RecordPaymentPanel batch={batch} onSaved={onRefresh} />
+    <BatchPaymentSummary batch={batch} />
+    <PaymentTable
+      payments={batch.payments || []}
+      onUpdated={onRefresh}
+    />
+  </div>
+)}
 
           {activeTab === "items" && (
             <BatchItemsTable batchId={batch.id} />
