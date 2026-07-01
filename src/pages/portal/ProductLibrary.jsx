@@ -78,6 +78,36 @@ export default function ProductLibrary() {
       setSaving(false);
     }
   }
+async function deleteProduct(product) {
+
+  if (
+    !window.confirm(
+      `Delete product "${product.product_name}" ?`
+    )
+  ) {
+    return;
+  }
+
+  try {
+
+    await axios.delete(
+      `${API_BASE}/portal/products/${product.id}`
+    );
+
+    await loadProducts();
+
+  } catch (err) {
+
+    console.error(err);
+
+    alert(
+      err.response?.data?.error ||
+      "Failed to delete product"
+    );
+
+  }
+
+}
 
   useEffect(() => {
     loadProducts();
@@ -308,6 +338,10 @@ export default function ProductLibrary() {
               <th className="text-right px-5 py-3">Capacity</th>
               <th className="text-right px-5 py-3">Dealer Price</th>
               <th className="text-left px-5 py-3">Status</th>
+
+<th className="text-center px-5 py-3">
+  Action
+</th>
             </tr>
           </thead>
 
@@ -357,13 +391,29 @@ export default function ProductLibrary() {
                       {product.active ? "Active" : "Inactive"}
                     </span>
                   </td>
+                 <td className="px-5 py-3 text-center">
+
+  <button
+    className="px-3 py-1 rounded border text-sm hover:bg-gray-50"
+  >
+    Edit
+  </button>
+
+  <button
+    onClick={() => deleteProduct(product)}
+    className="ml-2 px-3 py-1 rounded border border-red-300 text-red-600 hover:bg-red-50"
+  >
+    Delete
+  </button>
+
+</td>
                 </tr>
               ))
             ) : (
               <tr>
                 <td
                   className="px-5 py-8 text-center text-gray-500"
-                  colSpan={8}
+                  colSpan={9}
                 >
                   No products yet.
                 </td>
