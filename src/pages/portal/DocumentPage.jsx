@@ -244,6 +244,19 @@ export default function DocumentPage({
       setOpeningId(null);
     }
   }
+async function deleteDocument(doc) {
+  if (!window.confirm(`Delete document "${doc.title || doc.file_name}"?`)) {
+    return;
+  }
+
+  try {
+    await axios.delete(`${API_BASE}/portal/documents/${doc.id}`);
+    await loadDocuments();
+  } catch (err) {
+    console.error("Delete document failed:", err);
+    alert(err.response?.data?.error || "Failed to delete document");
+  }
+}
 
   useEffect(() => {
     setForm((prev) => ({
@@ -418,15 +431,24 @@ export default function DocumentPage({
                 </td>
 
                 <td className="px-5 py-3 max-w-[240px]">
-                  <button
-                    type="button"
-                    onClick={() => openDocument(doc.id)}
-                    disabled={openingId === doc.id}
-                    title={doc.file_name || ""}
-                    className="block max-w-[240px] truncate text-left text-gray-900 hover:underline disabled:opacity-50"
-                  >
-                    {doc.file_name || "-"}
-                  </button>
+                  <div className="flex gap-2">
+  <button
+    type="button"
+    onClick={() => openDocument(doc.id)}
+    disabled={openingId === doc.id}
+    className="px-3 py-1 rounded-lg border bg-white hover:bg-gray-50 text-sm disabled:opacity-50"
+  >
+    {openingId === doc.id ? "Opening..." : "View"}
+  </button>
+
+  <button
+    type="button"
+    onClick={() => deleteDocument(doc)}
+    className="px-3 py-1 rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50 text-sm"
+  >
+    Delete
+  </button>
+</div>
                 </td>
 
                 <td className="px-5 py-3">{formatDate(doc.created_at)}</td>
