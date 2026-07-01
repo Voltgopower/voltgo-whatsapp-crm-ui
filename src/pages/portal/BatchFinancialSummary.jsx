@@ -9,15 +9,14 @@ export default function BatchFinancialSummary({ batch, onSaved }) {
   const [saving, setSaving] = useState(false);
 
   const [form, setForm] = useState({
-    batch_no: batch.batch_no || "",
-    customer_name: batch.customer_name || "",
-    invoice_amount: batch.invoice_amount || 0,
-    received_amount: batch.received_amount || 0,
-    status: batch.status || "draft",
-    shipment_date: batch.shipment_date
-      ? String(batch.shipment_date).slice(0, 10)
-      : "",
-  });
+  batch_no: batch.batch_no || "",
+  customer_name: batch.customer_name || "",
+  invoice_amount: batch.invoice_amount || 0,
+  status: batch.status || "draft",
+  shipment_date: batch.shipment_date
+    ? String(batch.shipment_date).slice(0, 10)
+    : "",
+});
 
   const invoice = Number(batch.invoice_amount || 0);
   const received = Number(batch.received_amount || 0);
@@ -30,10 +29,9 @@ export default function BatchFinancialSummary({ batch, onSaved }) {
 
     try {
       await axios.put(`${API_BASE}/portal/batches/${batch.id}`, {
-        ...form,
-        invoice_amount: Number(form.invoice_amount || 0),
-        received_amount: Number(form.received_amount || 0),
-      });
+  ...form,
+  invoice_amount: Number(form.invoice_amount || 0),
+});
 
       setEditing(false);
       if (onSaved) await onSaved();
@@ -104,18 +102,7 @@ export default function BatchFinancialSummary({ batch, onSaved }) {
               <option value="shipped">Shipped</option>
               <option value="closed">Closed</option>
             </select>
-
-            <input
-              type="number"
-              step="0.01"
-              value={form.invoice_amount}
-              onChange={(e) =>
-                setForm({ ...form, invoice_amount: e.target.value })
-              }
-              className="border rounded-lg px-3 py-2 text-sm"
-              placeholder="Invoice Amount"
-            />
-
+            
             <input
               type="number"
               step="0.01"
