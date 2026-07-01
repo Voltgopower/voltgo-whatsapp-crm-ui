@@ -300,6 +300,7 @@ export default function ShipmentPanel({ batchId }) {
                 shipment={shipment}
                 isOpen={isOpen}
                 linkedAmount={linkedAmount.toFixed(2)}
+                onUpdated={loadShipments}
                 onToggle={async () => {
                   const nextId = isOpen ? null : shipment.id;
                   setOpenShipmentId(nextId);
